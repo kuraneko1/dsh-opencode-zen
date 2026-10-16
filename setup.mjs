@@ -1,18 +1,23 @@
 #!/usr/bin/env node
-// Optional setup/migration CLI. The provider itself is the native plugin in index.mjs.
-import { readFile, lstat, writeFile } from 'node:fs/promises';
+// Setup CLI for dsh-opencode-zen. The plugin needs only DSH; dsh and rdsh are both supported launchers.
+import { readFile, lstat, writeFile, mkdir } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import YAML from 'yaml';
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write';
 import { runtimeDirectory } from './runtime-path.mjs';
 
 const REF = 'FREEMODELS_API_KEY';
 const PACKAGE = 'dsh-opencode-zen';
+const UNIT_NAME = 'dsh-opencode-zen.service';
+const here = dirname(fileURLToPath(import.meta.url));
 class SafeError extends Error {}
 const fail = message => { throw new SafeError(message); };
+
 function document(text, label) {
   let doc;
   try { doc = YAML.parseDocument(text, { uniqueKeys: true }); } catch { fail(`${label} is invalid YAML; nothing was changed.`); }
@@ -50,9 +55,7 @@ export function mergePatch(text, config, bundled = false) {
   } else {
     doc.contents.add(doc.createNode({ insert: [{ id: 'opencode-zen', name: PACKAGE, config }] }));
   }
-  const output = doc.toString();
-  // Preserve exact original bytes when this is already the intended configuration.
-  return JSON.stringify(doc.toJS()) === JSON.stringify(document(text, 'Profile patch').toJS()) ? text : output;
+  return JSON.stringify(doc.toJS()) === JSON.stringify(document(text, 'Profile patch').toJS()) ? text : doc.toString();
 }
 
 export function mergeCredentials(text, key) {
@@ -66,6 +69,99 @@ export function mergeCredentials(text, key) {
   refs.set(REF, key);
   return doc.toString();
 }
+
+/** Deterministic unit text; only absolute, quote-safe paths are accepted. */
+export function serviceUnit({ node, script, opencodeDir }) {
+  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir]]) {
+    if (typeof value !== 'string' || !value.startsWith('/') || /["\\\r\n]/.test(value)) fail(`cannot generate a systemd unit from ${label}`);
+  }
+  const path = [...new Set([opencodeDir, dirname(node), '/usr/local/bin', '/usr/bin', '/bin'])].join(':');
+  return `[Unit]
+Description=OpenCode Zen free-model relay for DSH
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+Environment="PATH=${path}"
+WorkingDirectory=/tmp
+ExecStart="${node}" "${script}" run
+TimeoutStartSec=180
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+function runProcess(command, args, env) {
+  return new Promise((ok, no) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    let output = '';
+    child.stdout.on('data', chunk => { output += chunk; });
+    child.stderr.on('data', chunk => { output += chunk; });
+    child.once('error', no);
+    child.once('exit', code => ok({ code, output }));
+  });
+}
+
+async function findExecutable(name) {
+  for (const dir of String(process.env.PATH || '').split(':').filter(Boolean)) {
+    const candidate = join(dir, name);
+    try { const stat = await lstat(candidate); if (stat.isFile() && (stat.mode & 0o111)) return candidate; } catch { /* keep looking */ }
+  }
+  return null;
+}
+
+async function waitForRelay(baseURL, timeoutMs = 60_000) {
+  // /health lives at the origin root, not under the /v1 API prefix.
+  const healthURL = `${new URL(baseURL).origin}/health`;
+  const deadline = Date.now() + timeoutMs;
+  let last = 'no response';
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(healthURL, { signal: AbortSignal.timeout(2000), redirect: 'error' });
+      if (!response.ok) last = `HTTP ${response.status}`;
+      else {
+        const health = await response.json();
+        if (health?.upstreams?.opencode === true && health?.upstreams?.bridge === true) return;
+        last = JSON.stringify(health?.upstreams ?? health).slice(0, 200);
+      }
+    } catch (error) { last = String(error.message || error); }
+    await new Promise(ok => setTimeout(ok, 500));
+  }
+  fail(`relay did not become healthy within ${timeoutMs}ms (${last}); check: systemctl --user status ${UNIT_NAME}`);
+}
+
+async function startRelayService({ baseURL, profileDir, unitDir, run, which }) {
+  if (process.platform !== 'linux') fail('--service installs a Linux systemd user unit; start the relay manually on other systems.');
+  const opencode = await which('opencode');
+  if (!opencode) fail('opencode was not found on PATH; install it before using --service.');
+  if (!(await which('systemctl'))) fail('systemctl was not found on PATH; start the relay manually instead of --service.');
+  const installed = join(profileDir, 'node_modules', PACKAGE, 'supervisor.mjs');
+  const script = await lstat(installed).then(stat => stat.isFile() ? installed : join(here, 'supervisor.mjs')).catch(() => join(here, 'supervisor.mjs'));
+  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode) });
+  const file = join(unitDir, UNIT_NAME);
+  await mkdir(unitDir, { recursive: true, mode: 0o755 });
+  const before = await readFile(file, 'utf8').catch(() => null);
+  if (before !== content) {
+    if (before !== null) await writeFile(`${file}.bak-opencode-zen-${randomUUID()}`, before, { mode: 0o644, flag: 'wx' });
+    await writeFile(file, content, { mode: 0o644 });
+  }
+  for (const args of [['daemon-reload'], ['enable', '--now', UNIT_NAME]]) {
+    const result = await run('systemctl', ['--user', ...args], process.env);
+    if (result.code !== 0) fail(`systemctl --user ${args.join(' ')} failed: ${String(result.output).trim().slice(0, 300)}`);
+  }
+  await waitForRelay(baseURL);
+  return file;
+}
+
 async function existingFile(file, secret = false) {
   try {
     const stat = await lstat(file);
@@ -74,39 +170,47 @@ async function existingFile(file, secret = false) {
     return await readFile(file, 'utf8');
   } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
+
 async function save(file, before, after) {
   if (before === after) return false;
   if (before !== null) await writeFile(`${file}.bak-opencode-zen-${randomUUID()}`, before, { mode: 0o600, flag: 'wx' });
   await writeFileAtomic(file, after, { mode: 0o600 });
   return true;
 }
-export async function integrate({ install = false, dshHome = process.env.DSH_HOME || join(homedir(), '.dsh'),
-  profile = 'web', baseURL = 'http://127.0.0.1:8099/v1', keyFile = join(runtimeDirectory(), 'proxy.key'), fetchImpl = fetch } = {}) {
+
+export async function integrate({ install = false, service = false, dshHome = process.env.DSH_HOME || join(homedir(), '.dsh'),
+  profile = 'web', baseURL = 'http://127.0.0.1:8099/v1', keyFile = join(runtimeDirectory(), 'proxy.key'),
+  fetchImpl = fetch, run = runProcess, which = findExecutable,
+  unitDir = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user') } = {}) {
+  if (service && !install) fail('--service requires --install; it writes a systemd user unit and starts the relay.');
   if (!/^[a-zA-Z0-9_-]+$/.test(profile)) fail('Invalid profile name.');
   let url;
   try { url = new URL(baseURL); } catch { fail('Invalid proxy URL.'); }
   if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(url.hostname)
     || url.username || url.password || url.search || url.hash || url.pathname.replace(/\/$/, '') !== '/v1') fail('Proxy must be a numeric loopback HTTP /v1 endpoint.');
   baseURL = url.href.replace(/\/$/, '');
+  const home = resolve(dshHome), patch = join(home, 'profiles', profile, 'cordis.patch.yml'), credentials = join(home, '.credentials.yaml');
+  const unitFile = service ? await startRelayService({ baseURL, profileDir: join(home, 'profiles', profile), unitDir, run, which }) : null;
   const key = process.env[REF] ?? (await existingFile(resolve(keyFile), true))?.trim();
-  if (typeof key !== 'string' || key.length < 32 || key.length > 4096 || /\s|[\x00-\x1f\x7f]/.test(key)) fail('A private proxy key of at least 32 non-whitespace characters is required.');
+  if (typeof key !== 'string' || key.length < 32 || key.length > 4096 || /\s|[\x00-\x1f\x7f]/.test(key)) {
+    fail('A private proxy key of at least 32 non-whitespace characters is required; start the relay (or pass --service) so it creates one.');
+  }
   let response;
   try { response = await fetchImpl(`${baseURL}/models`, { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(10000) }); }
-  catch { fail('Could not fetch the authenticated proxy catalog; redirects are refused.'); }
+  catch { fail('Could not fetch the authenticated proxy catalog; is the relay running? Redirects are refused.'); }
   if (!response.ok) fail(`Proxy catalog returned HTTP ${response.status}; no files changed.`);
   let catalog;
   try { catalog = await response.json(); } catch { fail('Proxy catalog is not JSON.'); }
   if (!Array.isArray(catalog.data) || catalog.data.length > 10000) fail('Invalid proxy catalog.');
   const models = catalog.data.filter(m => m?.route === 'zen' && typeof m.id === 'string' && /^zen\/[^\s?#]+$/.test(m.id) && m.chat === true && m.tools === true);
   if (!models.length) fail('No tool-capable OpenCode Zen Chat models are available.');
-  const home = resolve(dshHome), patch = join(home, 'profiles', profile, 'cordis.patch.yml'), credentials = join(home, '.credentials.yaml');
   const config = { proxyURL: baseURL, apiKeyEnv: REF };
   async function prepare() {
     const manifestText = await existingFile(join(home, 'profiles', profile, 'package.json'));
-    if (manifestText === null) fail('Initialize and install the package in this profile first.');
+    if (manifestText === null) fail(`Initialize the profile and add ${PACKAGE} to it first (dsh plugin --profile ${profile} add <package>).`);
     let manifest;
     try { manifest = JSON.parse(manifestText); } catch { fail('Invalid profile manifest.'); }
-    if (!manifest.dependencies?.[PACKAGE] && !manifest.devDependencies?.[PACKAGE]) fail('Install dsh-opencode-zen into this profile before applying setup.');
+    if (!manifest.dependencies?.[PACKAGE] && !manifest.devDependencies?.[PACKAGE]) fail(`Install ${PACKAGE} into this profile before applying setup.`);
     const homeText = await existingFile(join(home, 'cordis.patch.yml'));
     if (homeText !== null) {
       const doc = document(homeText, 'Home patch');
@@ -129,16 +233,25 @@ export async function integrate({ install = false, dshHome = process.env.DSH_HOM
     patchChanged = plan.oldPatch !== plan.newPatch; credentialChanged = plan.oldCredentials !== plan.newCredentials;
   }
   return { mode: install ? 'installed' : 'dry-run', profile, provider: 'opencode-zen', models: models.length,
-    excluded: catalog.data.length - models.length, patchChanged, credentialChanged, defaultModelChanged: false };
+    excluded: catalog.data.length - models.length, patchChanged, credentialChanged, defaultModelChanged: false,
+    relay: unitFile ? `systemd:${UNIT_NAME}` : 'external', ...(unitFile ? { unitFile } : {}) };
 }
+
 async function main() {
   const options = {};
   for (let i = 2; i < process.argv.length; i++) {
     const arg = process.argv[i];
     if (arg === '--install') options.install = true;
+    else if (arg === '--service') options.service = true;
     else if (arg === '--dry-run') options.install = false;
     else if (arg === '--help') {
-      console.log('dsh-opencode-zen-setup [--install] [--profile web] [--dsh-home DIR] [--base-url http://127.0.0.1:8099/v1] [--key-file FILE]\nDefault: dry-run. Install the native plugin package into the profile before applying setup.');
+      console.log(`dsh-opencode-zen-setup [--install] [--service] [--profile web] [--dsh-home DIR] [--base-url http://127.0.0.1:8099/v1] [--key-file FILE]
+
+Default: dry-run preview; nothing is written.
+  --install   write the opencode-zen row and the local proxy key reference.
+  --service   with --install, also install/start a systemd user unit for the relay.
+Requires the package to be installed in the profile first, for example:
+  dsh plugin --profile web add dsh-opencode-zen-0.2.0.tgz`);
       return;
     } else {
       const names = { '--profile': 'profile', '--dsh-home': 'dshHome', '--base-url': 'baseURL', '--key-file': 'keyFile' };
@@ -148,7 +261,12 @@ async function main() {
   }
   console.log(JSON.stringify(await integrate(options), null, 2));
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(error => {
+// npm/pnpm bin shims are symlinks, so compare real paths: a plain resolve() would make this a silent no-op.
+function isEntryPoint() {
+  try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return false; }
+}
+if (isEntryPoint()) main().catch(error => {
   console.error(error instanceof SafeError ? error.message : 'Setup failed; files may have partially committed. Check private backups. No credential values were logged.');
   process.exitCode = 1;
 });

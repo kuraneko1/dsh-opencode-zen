@@ -1,13 +1,18 @@
 {
   "name": "dsh-opencode-zen",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenCode Zen free models as a native DSH/RDSH provider plugin with an isolated local relay",
   "type": "module",
   "license": "MIT",
   "author": "kuraneko1",
-  "repository": { "type": "git", "url": "git+https://github.com/kuraneko1/dsh-opencode-zen.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kuraneko1/dsh-opencode-zen.git"
+  },
   "homepage": "https://github.com/kuraneko1/dsh-opencode-zen#readme",
-  "bugs": { "url": "https://github.com/kuraneko1/dsh-opencode-zen/issues" },
+  "bugs": {
+    "url": "https://github.com/kuraneko1/dsh-opencode-zen/issues"
+  },
   "main": "./index.mjs",
   "exports": {
     ".": "./index.mjs",
@@ -17,29 +22,56 @@
   },
   "bin": {
     "dsh-opencode-zen-proxy": "./supervisor.mjs",
-    "dsh-opencode-zen-setup": "./rdsh-plugin.mjs"
+    "dsh-opencode-zen-setup": "./setup.mjs"
   },
   "files": [
-    "index.mjs", "server.mjs", "supervisor.mjs", "runtime-path.mjs",
-    "opencode-bridge.mjs", "opencode-plugin.mjs", "rdsh-plugin.mjs",
-    "cordis.patch.yml", "freemodels-proxy.service", "README.md", "README.ja.md",
-    "LICENSE", "SECURITY.md", "CHANGELOG.md", "AUDIT.md", "*.test.mjs",
-    "bridge-smoke.mjs", "rdsh-smoke.mjs"
+    "index.mjs",
+    "server.mjs",
+    "supervisor.mjs",
+    "runtime-path.mjs",
+    "opencode-bridge.mjs",
+    "opencode-plugin.mjs",
+    "setup.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.ja.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "AUDIT.md",
+    "*.test.mjs",
+    "bridge-smoke.mjs",
+    "rdsh-smoke.mjs"
   ],
-  "engines": { "node": ">=22.19.0" },
-  "os": ["linux"],
-  "keywords": ["dsh", "rdsh", "opencode", "zen", "llm", "plugin"],
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "os": [
+    "linux"
+  ],
+  "keywords": [
+    "dsh",
+    "rdsh",
+    "opencode",
+    "zen",
+    "llm",
+    "plugin"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
     "@deepseek-ai/dsh": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-atomic-write": "0.2.0-rc.2",
     "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm-pi-ai": "0.2.0-rc.2",
     "@earendil-works/pi-ai": "0.87.1"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-atomic-write": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "yaml": "^2.9.1"
   },
@@ -47,7 +79,7 @@
     "test": "node --test *.test.mjs",
     "start": "node supervisor.mjs run",
     "status": "node supervisor.mjs status",
-    "setup": "node rdsh-plugin.mjs",
+    "setup": "node setup.mjs",
     "test:live": "node bridge-smoke.mjs && node rdsh-smoke.mjs",
     "prepack": "node --test *.test.mjs"
   }

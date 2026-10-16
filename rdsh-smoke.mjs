@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { integrate } from './rdsh-plugin.mjs';
+import { integrate } from './setup.mjs';
 import { runtimeDirectory } from './runtime-path.mjs';
 // RDSH rejects shell wrappers: it audits the real @deepseek-ai/dsh lib/bin.js path.
 const dshBin = process.env.RDSH_ORIG_BIN || process.env.DSH_ORIG_BIN

@@ -191,7 +191,12 @@ export function createProxy({ apiKey, ocURL = 'http://127.0.0.1:4096', ocPasswor
   return { server, refresh };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Symlinked bin shims must still start the server.
+function isEntryPoint() {
+  try { return Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return false; }
+}
+if (isEntryPoint()) {
   const runtime = runtimeDirectory();
   const secret = name => {
     const file = path.join(runtime, name), stat = fs.lstatSync(file);

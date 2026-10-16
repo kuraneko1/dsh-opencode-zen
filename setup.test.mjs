@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import YAML from 'yaml';
-import { integrate, mergePatch, mergeCredentials } from './rdsh-plugin.mjs';
+import { integrate, mergePatch, mergeCredentials, serviceUnit } from './setup.mjs';
 import { runtimeDirectory } from './runtime-path.mjs';
 
 const inheritedKey = process.env.FREEMODELS_API_KEY;
@@ -104,4 +104,49 @@ test('setup uses a real authenticated HTTP request without DSH runtime path assu
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const result = await integrate({ ...f.options, fetchImpl: fetch, baseURL: `http://127.0.0.1:${server.address().port}/v1` });
   assert.equal(result.models, 1);
+});
+test('generated systemd unit is absolute, portable and hardened', () => {
+  const unit = serviceUnit({ node: '/usr/bin/node', script: '/opt/dsh zen/supervisor.mjs', opencodeDir: '/opt/bin' });
+  assert.match(unit, /^ExecStart="\/usr\/bin\/node" "\/opt\/dsh zen\/supervisor\.mjs" run$/m);
+  assert.match(unit, /^Environment="PATH=\/opt\/bin:\/usr\/bin:/m);
+  for (const line of ['Type=simple', 'Restart=on-failure', 'UMask=0077', 'NoNewPrivileges=yes', 'PrivateTmp=yes', 'WorkingDirectory=/tmp', 'WantedBy=default.target']) {
+    assert.ok(unit.includes(line), line);
+  }
+  assert.doesNotMatch(unit, /\/home\/ryu/);
+  for (const bad of [{ node: 'node', script: '/s', opencodeDir: '/b' }, { node: '/n', script: 'relative', opencodeDir: '/b' },
+    { node: '/n', script: '/s', opencodeDir: '/b"\nExecStart=/bin/sh' }]) assert.throws(() => serviceUnit(bad));
+});
+test('--service without --install and missing opencode/systemctl fail before any write', async t => {
+  const f = await fixture(t);
+  await assert.rejects(integrate({ ...f.options, service: true }), /--service requires --install/);
+  for (const missing of ['opencode', 'systemctl']) {
+    await assert.rejects(integrate({ ...f.options, install: true, service: true, unitDir: join(f.home, 'systemd'),
+      which: async name => (name === missing ? null : `/usr/bin/${name}`) }), new RegExp(`${missing} was not found`));
+  }
+  assert.equal(await readFile(join(f.profile, 'cordis.patch.yml'), 'utf8'), patch);
+  assert.deepEqual(await readdir(f.home), ['profiles', 'proxy.key']);
+});
+test('--service writes the unit, starts it through systemctl and then registers the provider', async t => {
+  const f = await fixture(t);
+  const calls = [];
+  const server = createServer((req, res) => {
+    if (req.url === '/health') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true, upstreams: { opencode: true, bridge: true } }));
+    if (req.url === '/v1/models') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [model] })); }
+    res.writeHead(404).end();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+  const unitDir = join(f.home, 'systemd');
+  const baseURL = `http://127.0.0.1:${server.address().port}/v1`;
+  const result = await integrate({ ...f.options, install: true, service: true, unitDir, fetchImpl: fetch,
+    baseURL, which: async name => `/usr/bin/${name}`,
+    run: async (command, args) => { calls.push([command, ...args].join(' ')); return { code: 0, output: '' }; } });
+  assert.deepEqual(calls, ['systemctl --user daemon-reload', 'systemctl --user enable --now dsh-opencode-zen.service']);
+  assert.equal(result.relay, 'systemd:dsh-opencode-zen.service');
+  const unit = await readFile(join(unitDir, 'dsh-opencode-zen.service'), 'utf8');
+  assert.ok(unit.includes(`"${process.execPath}"`));
+  const registered = rows(await readFile(join(f.profile, 'cordis.patch.yml'), 'utf8')).flatMap(row => (row.insert ? row.insert : [row]));
+  assert.equal(registered.at(-1).id, 'opencode-zen');
+  assert.deepEqual(registered.at(-1).config, { proxyURL: baseURL, apiKeyEnv: 'FREEMODELS_API_KEY' });
+  assert.equal(rows(await readFile(join(f.home, '.credentials.yaml'), 'utf8')).refs.FREEMODELS_API_KEY, key);
 });

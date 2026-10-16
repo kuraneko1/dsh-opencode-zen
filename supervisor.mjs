@@ -2,10 +2,9 @@
 // One foreground owner; never trust an old child PID file to stop a process.
 import fs from 'node:fs';
 import path from 'node:path';
-import { runtimeDirectory } from './runtime-path.mjs';
+import { runtimeDirectory, stateToken } from './runtime-path.mjs';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -26,13 +25,7 @@ function privateFile(file, content, flags = 'w') {
   try { fs.fchmodSync(fd, 0o600); fs.writeFileSync(fd, content); } finally { fs.closeSync(fd); }
 }
 function secret(name) {
-  const file = path.join(runtime, name);
-  if (!fs.existsSync(file)) privateFile(file, randomBytes(32).toString('hex') + '\n', 'wx');
-  const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw new Error(`${name} must be a private regular file (0600)`);
-  const value = fs.readFileSync(file, 'utf8').trim();
-  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`invalid ${name}`);
-  return value;
+  return stateToken(runtime, name);
 }
 function removeExact(file) {
   // Only these owned files can ever be removed; no recursive credential deletion.

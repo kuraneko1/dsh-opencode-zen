@@ -1,53 +1,55 @@
 # dsh-opencode-zen
 
-**OpenCode Zenの無料モデル専用**の、標準DSH/Cordisプラグインです。RDSHからも通常のプラグインとして使えます。
+**OpenCode Zenの無料モデル専用**の、標準DSH/Cordisプラグインです。素の `dsh` で使えます。**RDSHは必須ではありません**（RDSHはエージェントツールの厳格サンドボックスを追加するだけです）。
 [English](<README.md>) / [MITライセンス](<LICENSE>) / [安全性](<SECURITY.md>)
 
-配布元: <https://github.com/kuraneko1/dsh-opencode-zen>（MIT）。npmレジストリへの公開は行っていません。tgzまたはGitリポジトリから導入します。
-
-## 今回の構成
-
-- [本体](<index.mjs>)が専用プロバイダ `opencode-zen` を登録します。導入スクリプトだけをプラグインと呼ぶ構成ではありません。
-- 既存の `llm-pi-ai` をもう1つ起動せず、公開されている `PiAiAdapter` を利用します。他のプロバイダや既定モデルを置換しません。
-- OpenRouter・NVIDIA・ローカルの経路はありません。Zen以外のIDは拒否します。
-- 専用OpenCodeはキーなし・空の認証ファイルで起動し、ホストの資格情報を読み取り/コピーしません。
-- 実ツールは呼び出し元のRDSH/DSHだけが実行します。OpenCodeは中継のみです。
+配布元: <https://github.com/kuraneko1/dsh-opencode-zen>（MIT）。npmレジストリへの公開は行っていません。GitHub Releaseのtgzから導入します。
 
 ## 対応環境
 
 Linux / Node 22.19以上 / `opencode` コマンドが必要です。
+素の `dsh` で動作します。プラグインと中継は `rdsh` を一切呼びません。`rdsh` を使うのは、RDSHの厳格ツール境界が維持されることを確認する任意のライブテスト1つだけです。
 検証対象はDSH 0.2.0-rc.2、RDSH 0.4.0、OpenCode 1.19.0です。未検証のバージョンへの互換性は宣言しません。
 対応するのはテキストのChat Completionsとツール呼び出しです。非Chatモデルは対応を偽装せず一覧から外します。
 
-## 導入
+## 導入（コマンド2つ）
 
 ```bash
-# このソースディレクトリで
-npm ci --ignore-scripts
-npm test
-npm pack
+# 1. プラグインをプロファイルへ追加（dsh でも rdsh でも可）
+dsh plugin --profile web add \
+  https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.1/dsh-opencode-zen-0.2.1.tgz
 
-# 作成したtgzを標準のプラグイン管理から導入
-rdsh plugin --profile web add /absolute/path/dsh-opencode-zen-0.2.0.tgz
-
-# Gitリポジトリから直接導入することもできます
-rdsh plugin --profile web add git+https://github.com/kuraneko1/dsh-opencode-zen.git
+# 2. 資格情報の生成・プロバイダ行の登録・中継のuserサービス化を一度に実行
+"${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
-[バンドル定義](<cordis.patch.yml>)から本物のプラグイン本体が読み込まれます。
-次に、別ターミナルで中継プロセスを起動してください。プラグインの読み込みが勝手にデーモンを起動することはありません。
+これで完了です。中継が起動・ヘルスチェックされ、ローカル中継トークンがDSHの `FREEMODELS_API_KEY` に保存され、`opencode-zen` 行が `http://127.0.0.1:8099/v1` を指します。
+別ポートなら `--base-url http://127.0.0.1:18099/v1` と `PROXY_PORT=18099` を併せて指定します。
+モデル選択で **OpenCode Zen (free)** を選んでください。モデルIDを固定せず、実際のカタログに出るものを使ってください。
+
+**書き込み前の確認**は `--install` を外すだけです: `dsh-opencode-zen-setup --profile web`
+
+### systemdを使わない場合
+
+`--service` は任意です。中継を自分で起動してからsetupを実行します。
 
 ```bash
-"${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-proxy" run
-
-# もう1つのターミナルで、変更予定だけ確認→適用
-"${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --profile web
+"${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-proxy" run   # 起動したまま
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web
 ```
 
-設定する鍵は**ローカル中継への認証用**であり、Zen APIキーではありません。
-モデル選択で **OpenCode Zen (free)** を選びます。モデルIDを固定せず、実際のカタログに出るものを使ってください。
-サービス化には[systemd例](<freemodels-proxy.service>)を使えます。インストール先とNodeのPATHは環境に合わせて変更してください。
+`--service` は `~/.config/systemd/user/dsh-opencode-zen.service` を生成し（Type=simple、失敗時再起動、`NoNewPrivileges`、`PrivateTmp`、Nodeと`opencode`の絶対パス、個人パスを含まない）、`systemctl --user enable --now` を実行します。
+確認は `systemctl --user cat dsh-opencode-zen.service`、停止は `systemctl --user disable --now dsh-opencode-zen.service`。編集済みユニットは再生成前にバックアップされます。
+
+### ソースから作る場合
+
+```bash
+git clone https://github.com/kuraneko1/dsh-opencode-zen.git && cd dsh-opencode-zen
+npm ci --ignore-scripts && npm test && npm pack
+dsh plugin --profile web add "$PWD/dsh-opencode-zen-0.2.1.tgz"
+```
+
+`git+https://…` をプラグイン指定子にしないでください。pnpmがgit取得パッケージをビルド対象として扱い、DSHが承認までブロックします。Releaseのtgzかローカルのtgz/ディレクトリを使ってください。
 
 ### 旧版からの移行
 
@@ -81,13 +83,13 @@ npm test
 npm pack --dry-run --ignore-scripts
 
 # 中継を起動済みの環境で、実モデルを呼ぶ明示的テスト
-node bridge-smoke.mjs
-node rdsh-smoke.mjs
+node bridge-smoke.mjs            # 実Zenのツール呼び出し＋クライアント側だけの結果
+node rdsh-smoke.mjs              # 任意：RDSHの厳格境界で同じ証明を行う版
 ```
 
-[RDSHテスト](<rdsh-smoke.mjs>)は一時プロファイルに**本物のプラグイン**を読み込みます。
-共有したランダムなファイルだけを `rdsh_inspect` で読み、隔離ツール出力と最終回答の両方が一致することを確認します。
-RDSH側のネットワーク・書き込み・資格情報隔離は解除しません。外側サンドボックスが入れ子namespaceを禁止している場合はホストで実行してください。
+[RDSHテスト](<rdsh-smoke.mjs>)は、このリポジトリで唯一RDSHに依存する部分です。
+一時プロファイルに**本物のプラグイン**を読み込み、共有したランダムなファイルだけを `rdsh_inspect` で読み、隔離ツール出力と最終回答の両方が一致することを確認します。
+RDSH側のネットワーク・書き込み・資格情報隔離は解除しません。外側サンドボックスが入れ子namespaceを禁止している場合はホストで実行してください。素の `dsh` での利用にこれらは不要です。
 
 認証・loopback限定・SSE検証・メモリ/並列上限・切断キャンセルなどは維持しています。
 提供元の403を隠したり、ダミーツールやヘッダ偽装で回避したりしません。ツールなしの要求は提供元に403で拒否されることがあります。
@@ -98,4 +100,4 @@ RDSH側のネットワーク・書き込み・資格情報隔離は解除しま�
 MITライセンス、通常のnpm依存/peer依存、lockfile、標準バンドル定義、ローカルテストを備えています。
 配布対象はallowlistで限定し、資格情報・実行時データ・個人のバックアップ・旧調査ファイルは含めません。
 ソースは <https://github.com/kuraneko1/dsh-opencode-zen> で公開しています。
-**npmレジストリへの公開は行っていません。** tgzまたはGitチェックアウトから利用できます。
+**npmレジストリへの公開は行っていません。** 配布はGitHub Releaseのtgzで行います。

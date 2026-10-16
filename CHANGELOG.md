@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Easier install: `dsh-opencode-zen-setup --install --profile web --service` now generates, enables and health-checks the relay's systemd user unit, so a full install is two commands.
+- Confirmed launcher independence: the plugin, relay and setup work with plain `dsh`; only the optional RDSH smoke test uses RDSH.
+- Fixed a silent no-op: the CLI entry guard compared a symlink path with its target, so invoking either CLI through `node_modules/.bin` did nothing. Real paths are compared now, and a bin-shim regression test covers both binaries.
+- Fixed the `--service` readiness check, which polled `/v1/health` instead of the origin's `/health` and could never confirm startup.
+- `@deepseek-ai/dsh-atomic-write` is a normal dependency now, because setup runs under bare Node where launcher-resolved peers do not exist. A test asserts bare-node entry points never import host-provided peers.
+- Removed the hand-edited systemd example; the unit is generated from resolved absolute paths. `git+https://` installs are documented as blocked by pnpm build approval.
+
 ## 0.2.0 — first public source release
 
 - Published as public source at <https://github.com/kuraneko1/dsh-opencode-zen>. npm registry publication is not performed.
