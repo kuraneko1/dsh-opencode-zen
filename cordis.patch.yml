@@ -1,0 +1,7 @@
+# Standard DSH bundle entry. Does not replace llm-pi-ai or the default model.
+- insert:
+    - id: opencode-zen
+      name: dsh-opencode-zen
+      config:
+        proxyURL: http://127.0.0.1:8099/v1
+        apiKeyEnv: FREEMODELS_API_KEY

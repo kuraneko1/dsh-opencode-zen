@@ -1,0 +1,20 @@
+node_modules/
+runtime/
+*.tgz
+*.tar.gz
+*.bak*
+opencode.json.bak*
+.env
+.credentials.yaml
+.supervisor-test-*/
+.zen-setup-test-*/
+.rdsh-plugin-test-*/
+.package-test-*/
+# Historical local investigations are not the OSS project.
+bench_*.py
+catalog.json
+dsh-freemodels.patch.yml
+oc-models-verbose.txt
+start.sh
+stop.sh
+status.sh
