@@ -42,6 +42,17 @@ Pick **OpenCode Zen (free)** in the model selector. A wire ID is `zen/<model-id>
 
 Preview without writing anything by omitting `--install` (`dsh-opencode-zen-setup --profile web`).
 
+### If `add` stops on build scripts
+
+On a brand-new or empty profile, DSH's own plugin manager may refuse until you decide build scripts for
+**DSH's dependencies** (`node-pty`, `koffi`, `protobufjs`, `@google/genai`, `dsh-subprocess-local`).
+It prints the exact keys for `allowBuilds` in the profile's `pnpm-workspace.yaml`, or you can run
+`pnpm approve-builds` in the profile directory. This plugin has no install or build scripts of its own, and an
+already-populated profile usually needs none of this.
+
+If the first `add` fails partway, retry it: pnpm can record the dependency while DSH has not yet written the
+bundle entry. `remove` then `add` is the reliable retry.
+
 ### Without systemd, or with a custom service
 
 `--service` is optional. Start the relay yourself and run setup against it:

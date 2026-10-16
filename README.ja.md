@@ -29,6 +29,14 @@ dsh plugin --profile web add \
 
 **書き込み前の確認**は `--install` を外すだけです: `dsh-opencode-zen-setup --profile web`
 
+### `add` がビルド承認で止まる場合
+
+新規・空のプロファイルでは、DSH自身のプラグイン管理が、**DSH側の依存**（`node-pty`、`koffi`、`protobufjs`、`@google/genai`、`dsh-subprocess-local`）のビルドスクリプト承認を求めて停止することがあります。
+表示されたキーをプロファイルの `pnpm-workspace.yaml` の `allowBuilds` に設定するか、プロファイルディレクトリで `pnpm approve-builds` を実行してください。
+このプラグイン自身はinstall/buildスクリプトを持ちません。既にプラグインが入っているプロファイルでは通常不要です。
+
+1回目の `add` が途中で失敗した場合は再実行してください。pnpmが依存を記録しても、DSHがバンドル登録をまだ書いていないことがあります。確実なのは `remove` してから `add` し直す方法です。
+
 ### systemdを使わない場合
 
 `--service` は任意です。中継を自分で起動してからsetupを実行します。
