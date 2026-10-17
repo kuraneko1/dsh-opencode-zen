@@ -125,7 +125,7 @@ async function findExecutable(name) {
   return null;
 }
 
-async function waitForRelay(baseURL, timeoutMs = 60_000) {
+async function waitForRelay(baseURL, timeoutMs = 180_000) {
   // /health lives at the origin root, not under the /v1 API prefix.
   const healthURL = `${new URL(baseURL).origin}/health`;
   const deadline = Date.now() + timeoutMs;

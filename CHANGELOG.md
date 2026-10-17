@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.15
+
+Three waits now agree, so a cold first start cannot be mistaken for a failure (all three were hit
+while deploying to a second machine):
+
+- The isolation read of `GET /config` retries for up to 60s; previously a single 5s attempt aborted
+  startup while the client was still busy loading its metadata.
+- `install.sh` waits up to 180s for the relay instead of 60s, so it no longer reports failure while
+  the supervisor (150s window) is still starting.
+- The setup CLI waits 180s for a service start, for the same reason.
+
 ## 0.2.14
 
 - The relay start wait is bounded by wall-clock (150s, 3s probes) instead of 120 attempts with 1s

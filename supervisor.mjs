@@ -164,7 +164,18 @@ async function run() {
     if (!ready) throw new Error('dedicated OpenCode did not become ready within 150s');
     // Read this only once the client is up: a shell wrapper is still running when spawn returns.
     reportInheritedEnvironment(opencode.pid, new Set(Object.keys(opencodeEnv)));
-    const resolved = await fetch(`http://127.0.0.1:${ocPort}/config`, { headers: { authorization }, signal: AbortSignal.timeout(5000), redirect: 'error' }).then(r => r.json());
+    // Readiness only means the socket answers; a cold client can still be busy loading its
+    // metadata, so give this one a short retry window instead of a single 5s attempt.
+    const readResolved = async () => {
+      const until = Date.now() + 60_000;
+      let last;
+      while (Date.now() < until) {
+        try { return await fetch(`http://127.0.0.1:${ocPort}/config`, { headers: { authorization }, signal: AbortSignal.timeout(5000), redirect: 'error' }).then(r => r.json()); }
+        catch (error) { last = error; await delay(1000); }
+      }
+      throw last ?? new Error('dedicated OpenCode did not answer /config');
+    };
+    const resolved = await readResolved();
     if (resolved.plugin?.length !== 1 || resolved.plugin[0] !== config.plugin[0] || resolved.permission?.['*'] !== 'deny'
       || resolved.agent?.['dsh-bridge']?.permission?.['*'] !== 'deny') {
       throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify({ pluginCount: resolved.plugin?.length,

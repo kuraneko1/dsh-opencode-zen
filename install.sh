@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.14) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.15) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.14}"
+VERSION="${VERSION:-0.2.15}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -142,7 +142,7 @@ PROXY="$DSH_HOME/profiles/$PROFILE/node_modules/.bin/dsh-opencode-zen-proxy"
 RUNTIME_DIR="${FREEMODELS_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dsh-opencode-zen}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8099/v1}"
 relay_healthy() { curl -fsS --max-time 2 "${BASE_URL%/v1}/health" >/dev/null 2>&1; }
-wait_for_relay() { for _ in $(seq 1 60); do relay_healthy && return 0; sleep 1; done; return 1; }
+wait_for_relay() { for _ in $(seq 1 180); do relay_healthy && return 0; sleep 1; done; return 1; }
 
 if [[ "$SERVICE" == "1" ]] && "$SETUP" --install --profile "$PROFILE" --base-url "$BASE_URL" --service; then
   echo "install: relay service 'dsh-opencode-zen.service' is running"

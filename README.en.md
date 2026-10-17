@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.14/dsh-opencode-zen-0.2.14.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.15/dsh-opencode-zen-0.2.15.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
