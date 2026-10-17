@@ -3,18 +3,47 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.4) SERVICE (1) LAUNCHER (auto: dsh then rdsh)
+# Env overrides: PROFILE (web) VERSION (0.2.4) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
+PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
 VERSION="${VERSION:-0.2.4}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-TARBALL="https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v${VERSION}/dsh-opencode-zen-${VERSION}.tgz"
+MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
+TARBALL="${TARBALL:-https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v${VERSION}/dsh-opencode-zen-${VERSION}.tgz}"
+
+# --- repair: begin -----------------------------------------------------------
+# pnpm refuses every operation on a manifest whose `file:` dependency no longer
+# exists, so an upgrade from a deleted local tarball needs this entry repaired first.
+repair_stale_local_specifier() {
+  node - "$MANIFEST" "$TARBALL" "$PACKAGE" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const [file, url, name] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+for (const field of ['dependencies', 'devDependencies']) {
+  const current = manifest[field]?.[name];
+  if (typeof current !== 'string') continue;
+  if (!current.startsWith('file:')) continue;
+  // A relative file: specifier belongs to the manifest, not to the current directory.
+  const target = current.slice('file:'.length);
+  if (fs.existsSync(path.isAbsolute(target) ? target : path.resolve(path.dirname(file), target))) continue;
+  manifest[field][name] = url;
+  fs.copyFileSync(file, `${file}.bak-opencode-zen-${Date.now()}`);
+  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.error(`install: replaced the missing local specifier ${current}`);
+  process.exit(0);
+}
+process.exit(1);
+NODE
+}
+# --- repair: end -------------------------------------------------------------
 
 [[ "$PROFILE" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "install: invalid PROFILE '$PROFILE'" >&2; exit 2; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "install: invalid VERSION '$VERSION'" >&2; exit 2; }
-[[ -f "$DSH_HOME/profiles/$PROFILE/package.json" ]] || { echo "install: no profile '$PROFILE' under $DSH_HOME" >&2; exit 1; }
+[[ -f "$MANIFEST" ]] || { echo "install: no profile '$PROFILE' under $DSH_HOME" >&2; exit 1; }
 
 launcher="${LAUNCHER:-}"
 if [[ -z "$launcher" ]]; then
@@ -27,15 +56,25 @@ for tool in node opencode; do
   command -v "$tool" >/dev/null 2>&1 || { echo "install: $tool not found on PATH" >&2; exit 1; }
 done
 
-echo "install: adding dsh-opencode-zen $VERSION to profile '$PROFILE' with $launcher"
-if ! "$launcher" plugin --profile "$PROFILE" add "$TARBALL"; then
-  cat >&2 <<'HINT'
+add_plugin() { "$launcher" plugin --profile "$PROFILE" add "$TARBALL"; }
+
+echo "install: adding $PACKAGE $VERSION to profile '$PROFILE' with $launcher"
+if ! add_plugin; then
+  if repair_stale_local_specifier; then
+    echo "install: retrying the install"
+    if ! add_plugin; then
+      echo "install: still refused; see the diagnostics above and re-run" >&2
+      exit 1
+    fi
+  else
+    cat >&2 <<'HINT'
 install: the plugin manager refused the install.
 On a fresh profile it can stop on build scripts for DSH's own dependencies: put the keys it
 printed under allowBuilds in that profile's pnpm-workspace.yaml (or run `pnpm approve-builds`
 in the profile directory), then run this installer again.
 HINT
-  exit 1
+    exit 1
+  fi
 fi
 
 SETUP="$DSH_HOME/profiles/$PROFILE/node_modules/.bin/dsh-opencode-zen-setup"
@@ -52,6 +91,4 @@ else
   echo "  $PROXY run"
 fi
 
-cat <<'DONE'
-install: done. Pick "OpenCode Zen (free)" in the model selector.
-DONE
+echo "install: done. Pick \"OpenCode Zen (free)\" in the model selector."

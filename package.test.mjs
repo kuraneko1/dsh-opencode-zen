@@ -142,3 +142,38 @@ test('the default README is Japanese and the one-command installer is shippable'
   const syntax = spawnSync('bash', ['-n', path.join(here, 'install.sh')], { encoding: 'utf8' });
   assert.equal(syntax.status, 0, syntax.stderr);
 });
+
+test('the installer repairs a stale local specifier that would block every pnpm operation', async () => {
+  const script = await fs.readFile(path.join(here, 'install.sh'), 'utf8');
+  const body = script.split('# --- repair: begin ---')[1]?.split('# --- repair: end ---')[0]?.split('\n').slice(1).join('\n');
+  assert.ok(body, 'install.sh must keep the marked repair section');
+  const root = await fs.mkdtemp(path.join(here, '.repair-test-'));
+  try {
+    const repair = path.join(root, 'repair.sh');
+    await fs.writeFile(repair, `set -euo pipefail\n${body}\nrepair_stale_local_specifier\n`, { mode: 0o755 });
+    const manifest = path.join(root, 'package.json');
+    const run = (url, file, name) => spawnSync('bash', [repair], { encoding: 'utf8',
+      env: { ...process.env, MANIFEST: file, TARBALL: url, PACKAGE: name } });
+    const url = 'https://example.test/dsh-opencode-zen-1.0.0.tgz';
+    // A missing file: specifier is repaired and backed up.
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': `file:${root}/gone.tgz`, other: 'keep' } }));
+    const fixed = run(url, manifest, 'dsh-opencode-zen');
+    assert.equal(fixed.status, 0, fixed.stderr);
+    assert.match(fixed.stderr, /replaced the missing local specifier/);
+    const rewritten = JSON.parse(await fs.readFile(manifest, 'utf8'));
+    assert.equal(rewritten.dependencies['dsh-opencode-zen'], url);
+    assert.equal(rewritten.dependencies.other, 'keep');
+    assert.equal((await fs.readdir(root)).filter(x => x.includes('.bak-opencode-zen-')).length, 1);
+    // Already correct, a different package, or an existing local file: nothing to do.
+    assert.equal(run(url, manifest, 'dsh-opencode-zen').status, 1);
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': 'file:./present.tgz' } }));
+    await fs.writeFile(path.join(root, 'present.tgz'), 'x');
+    assert.equal(run(url, manifest, 'dsh-opencode-zen').status, 1);
+    assert.equal(run(url, manifest, 'some-other-package').status, 1);
+  } finally {
+    const resolved = path.resolve(root);
+    assert.equal(path.dirname(resolved), here);
+    assert.ok(path.basename(resolved).startsWith('.repair-test-'));
+    await fs.rm(resolved, { recursive: true, force: true });
+  }
+});
