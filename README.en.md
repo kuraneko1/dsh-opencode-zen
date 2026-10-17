@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.19/dsh-opencode-zen-0.2.19.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.20/dsh-opencode-zen-0.2.20.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -107,7 +107,7 @@ wired connection, so everything left over IPv4 and was refused.
    `nmcli device reapply <NIC>`.
 3. **Restart the relay after enabling IPv6**: `systemctl --user restart dsh-opencode-zen.service`.
    The dedicated OpenCode picks its route once at startup and will not switch on its own — that is
-   exactly why a plain client worked while the relay kept answering 403. From 0.2.19 the relay
+   exactly why a plain client worked while the relay kept answering 403. From 0.2.20 the relay
    notices that the machine gained IPv6 while the upstream keeps refusing and **restarts the
    dedicated OpenCode by itself**.
 4. `GET /health` reports `egress.ipv6` and `refusals.count` so this is observable.

@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.19) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.20) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.19}"
+VERSION="${VERSION:-0.2.20}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -155,7 +155,14 @@ else
     echo "install: no systemd user service here; using a background relay" >&2
   fi
   if relay_healthy; then
-    echo "install: a relay is already answering at $BASE_URL"
+    # Stop it with the code just installed, then confirm the port is free: starting a second
+    # supervisor would leave the previous version answering while the new one fails to bind.
+    "$PROXY" stop >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do relay_healthy || break; sleep 1; done
+  fi
+  if relay_healthy; then
+    echo "install: a relay still answers at $BASE_URL and could not be stopped; stop it and re-run" >&2
+    exit 1
   else
     mkdir -p "$RUNTIME_DIR"
     nohup "$PROXY" run >"$RUNTIME_DIR/relay.log" 2>&1 &

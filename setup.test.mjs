@@ -154,7 +154,7 @@ test('--service writes the unit, starts it through systemctl and then registers 
   const result = await integrate({ ...f.options, install: true, service: true, unitDir, fetchImpl: fetch,
     baseURL, which: async name => `/usr/bin/${name}`,
     run: async (command, args) => { calls.push([command, ...args].join(' ')); return { code: 0, output: '' }; } });
-  assert.deepEqual(calls, ['systemctl --user daemon-reload', 'systemctl --user enable --now dsh-opencode-zen.service']);
+  assert.deepEqual(calls, ['systemctl --user daemon-reload', 'systemctl --user enable dsh-opencode-zen.service', 'systemctl --user restart dsh-opencode-zen.service']);
   assert.equal(result.relay, 'systemd:dsh-opencode-zen.service');
   const unit = await readFile(join(unitDir, 'dsh-opencode-zen.service'), 'utf8');
   assert.ok(unit.includes(`"${process.execPath}"`));
@@ -192,7 +192,7 @@ test('OPENCODE_BIN names a binary that is not on PATH, and the unit carries its 
     assert.equal(result.relay, 'systemd:dsh-opencode-zen.service');
     const unit = await readFile(join(unitDir, 'dsh-opencode-zen.service'), 'utf8');
     assert.ok(unit.includes(`Environment="PATH=${binDir}:`), unit.slice(0, 400));
-    assert.deepEqual(calls, ['systemctl --user daemon-reload', 'systemctl --user enable --now dsh-opencode-zen.service']);
+    assert.deepEqual(calls, ['systemctl --user daemon-reload', 'systemctl --user enable dsh-opencode-zen.service', 'systemctl --user restart dsh-opencode-zen.service']);
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_BIN; else process.env.OPENCODE_BIN = previous;
   }

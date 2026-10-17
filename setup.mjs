@@ -173,7 +173,9 @@ async function startRelayService({ baseURL, profileDir, unitDir, run, which, aut
     if (before !== null) await writeFile(`${file}.bak-opencode-zen-${randomUUID()}`, before, { mode: 0o644, flag: 'wx' });
     await writeFile(file, content, { mode: 0o644 });
   }
-  for (const args of [['daemon-reload'], ['enable', '--now', UNIT_NAME]]) {
+  // `enable --now` leaves an already-running unit alone, so an upgrade would keep serving the
+  // previous version's code; enable and restart so the new code is the code that runs.
+  for (const args of [['daemon-reload'], ['enable', UNIT_NAME], ['restart', UNIT_NAME]]) {
     const result = await run('systemctl', ['--user', ...args], process.env);
     if (result.code !== 0) fail(`systemctl --user ${args.join(' ')} failed: ${String(result.output).trim().slice(0, 300)}`);
   }

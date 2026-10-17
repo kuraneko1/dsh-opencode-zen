@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.19/dsh-opencode-zen-0.2.19.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.20/dsh-opencode-zen-0.2.20.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -112,7 +112,7 @@ node zen-doctor.mjs
    systemctl --user restart dsh-opencode-zen.service
    ```
    専用OpenCodeは起動時に経路を決めるため、**後からIPv6が生えても自分では乗り換えません**（これが「素のCLIは通るのにリレーだけ403」の正体）。
-   0.2.19 以降は、拒否が続いたうえでIPv6が新たに使えるようになったことを検知すると、**自動で専用OpenCodeを再起動**します。
+   0.2.20 以降は、拒否が続いたうえでIPv6が新たに使えるようになったことを検知すると、**自動で専用OpenCodeを再起動**します。
 4. 状態は `GET /health` で見られます: `egress.ipv6`（この機械がグローバルIPv6を持つか）と `refusals.count`（上流に403で拒否された累計）。
 
 ## 知っておくこと

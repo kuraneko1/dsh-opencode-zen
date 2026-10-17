@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.20
+
+**An upgrade did not take effect.** Found because `/health` still lacked 0.2.19's fields after 0.2.19
+was installed: `systemctl --user enable --now` leaves an already-running unit alone, so the previous
+version's code kept serving, and the background path started a second supervisor that could not bind
+while the previous one kept answering. Every earlier upgrade today had the same trap.
+
+- The service path now runs `enable` and then `restart`, so the code that runs is the code installed.
+- The background path stops a running supervisor with the code just installed, waits for the port to
+  be free, and refuses to continue if something else still answers there.
+
 ## 0.2.19
 
 Diagnosed from a real failure: a host with `ipv6.method=disabled` was refused with `403 FreeTierError`
