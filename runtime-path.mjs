@@ -15,6 +15,8 @@ export function stateToken(directory, name) {
   const file = path.join(directory, name);
   if (!fs.existsSync(file)) {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    // mkdir does not tighten a directory that already exists with wider bits.
+    fs.chmodSync(directory, 0o700);
     const fd = fs.openSync(file,
       fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW, 0o600);
     try { fs.fchmodSync(fd, 0o600); fs.writeFileSync(fd, `${randomBytes(32).toString('hex')}\n`); }

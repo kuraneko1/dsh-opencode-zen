@@ -71,8 +71,8 @@ export function mergeCredentials(text, key) {
 }
 
 /** Deterministic unit text; only absolute, quote-safe paths are accepted. */
-export function serviceUnit({ node, script, opencodeDir, opencodeBin }) {
-  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir], ['opencodeBin', opencodeBin]]) {
+export function serviceUnit({ node, script, opencodeDir, opencodeBin, runtimeDir }) {
+  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir], ['opencodeBin', opencodeBin], ['runtimeDir', runtimeDir]]) {
     if (typeof value !== 'string' || !value.startsWith('/') || /["\\\r\n%]/.test(value)) fail(`cannot generate a systemd unit from ${label}`);
   }
   const path = [...new Set([opencodeDir, dirname(node), '/usr/local/bin', '/usr/bin', '/bin'])].join(':');
@@ -91,6 +91,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 Environment="PATH=${path}"
 Environment="OPENCODE_BIN=${opencodeBin}"
+Environment="FREEMODELS_RUNTIME_DIR=${runtimeDir}"
 WorkingDirectory=/tmp
 ExecStart="${node}" "${script}" run
 TimeoutStartSec=180
@@ -160,7 +161,7 @@ async function startRelayService({ baseURL, profileDir, unitDir, run, which }) {
   if (!(await which('systemctl'))) fail('systemctl was not found on PATH; start the relay manually instead of --service.');
   const installed = join(profileDir, 'node_modules', PACKAGE, 'supervisor.mjs');
   const script = await lstat(installed).then(stat => stat.isFile() ? installed : join(here, 'supervisor.mjs')).catch(() => join(here, 'supervisor.mjs'));
-  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode), opencodeBin: opencode });
+  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode), opencodeBin: opencode, runtimeDir: runtimeDirectory() });
   const file = join(unitDir, UNIT_NAME);
   await mkdir(unitDir, { recursive: true, mode: 0o755 });
   const before = await readFile(file, 'utf8').catch(() => null);
@@ -204,6 +205,8 @@ export async function integrate({ install = false, service = false, dshHome = pr
     || url.username || url.password || url.search || url.hash || url.pathname.replace(/\/$/, '') !== '/v1') fail('Proxy must be a numeric loopback HTTP /v1 endpoint.');
   baseURL = url.href.replace(/\/$/, '');
   const home = resolve(dshHome), patch = join(home, 'profiles', profile, 'cordis.patch.yml'), credentials = join(home, '.credentials.yaml');
+  // Everything that can be checked without a running relay is checked before anything is started.
+  if (install) await validateProfile();
   const unitFile = service ? await startRelayService({ baseURL, profileDir: join(home, 'profiles', profile), unitDir, run, which }) : null;
   const key = process.env[REF] ?? (await existingFile(resolve(keyFile), true))?.trim();
   if (typeof key !== 'string' || key.length < 32 || key.length > 4096 || /\s|[\x00-\x1f\x7f]/.test(key)) {
@@ -219,7 +222,7 @@ export async function integrate({ install = false, service = false, dshHome = pr
   const models = catalog.data.filter(m => m?.route === 'zen' && typeof m.id === 'string' && /^zen\/[^\s?#]+$/.test(m.id) && m.chat === true && m.tools === true);
   if (!models.length) fail('No tool-capable OpenCode Zen Chat models are available.');
   const config = { proxyURL: baseURL, apiKeyEnv: REF };
-  async function prepare() {
+  async function validateProfile() {
     const manifestText = await existingFile(join(home, 'profiles', profile, 'package.json'));
     if (manifestText === null) fail(`Initialize the profile and add ${PACKAGE} to it first (dsh plugin --profile ${profile} add <package>).`);
     let manifest;
@@ -231,8 +234,12 @@ export async function integrate({ install = false, service = false, dshHome = pr
       if (!YAML.isSeq(doc.contents)) fail('Home patch must be a YAML list.');
       if (doc.contents.items.some(row => YAML.isMap(row) && row.get('id') === 'opencode-zen')) fail('A higher-priority home opencode-zen override exists; reconcile it first.');
     }
+    if (await existingFile(patch) === null) fail('Initialize this profile first.');
+    return manifest;
+  }
+  async function prepare() {
+    const manifest = await validateProfile();
     const oldPatch = await existingFile(patch), oldCredentials = await existingFile(credentials, true);
-    if (oldPatch === null) fail('Initialize this profile first.');
     return { oldPatch, newPatch: mergePatch(oldPatch, config, manifest.dsh?.profile?.bundles?.includes(PACKAGE) === true),
       oldCredentials, newCredentials: mergeCredentials(oldCredentials, key) };
   }

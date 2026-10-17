@@ -185,7 +185,7 @@ test('the installer repairs the two states that block later pnpm operations', as
     // 2. A published tarball whose bytes changed under a locked integrity.
     await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': 'https://example.test/old.tgz' } }));
     assert.equal(run().status, 1, 'an unrelated log must not trigger a rewrite');
-    await addLog('[ERR_PNPM_TARBALL_INTEGRITY] Got unexpected checksum for old.tgz');
+    await addLog('[ERR_PNPM_TARBALL_INTEGRITY] Got unexpected checksum for "https://example.test/old.tgz"');
     const mismatch = run();
     assert.equal(mismatch.status, 0, mismatch.stderr);
     assert.match(mismatch.stderr, /no longer matches the locked integrity/);
@@ -198,6 +198,13 @@ test('the installer repairs the two states that block later pnpm operations', as
     assert.equal(captured.status, 0, captured.stderr);
     assert.match(captured.stderr, /no longer matches the locked integrity/);
     assert.equal(run('nothing about checksums').status, 1);
+    // Loose evidence must not rewrite anything: a bare range that pnpm prints routinely, or a
+    // checksum message about some other package, is not proof about this entry.
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': '^0.2.6' } }));
+    assert.equal(run('[ERR_PNPM_TARBALL_INTEGRITY] integrity sha512 mismatch for ^0.2.6').status, 1);
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': 'https://example.test/mine.tgz' } }));
+    assert.equal(run('[ERR_PNPM_TARBALL_INTEGRITY] Got unexpected checksum for "https://example.test/other.tgz"').status, 1);
+    assert.equal(run('ERR_PNPM_TARBALL_INTEGRITY sha512 mismatch').status, 1);
 
     // 2c. A symlinked manifest is never rewritten.
     const link = path.join(root, 'link.json');

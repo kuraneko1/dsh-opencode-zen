@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.9
+
+Independent review follow-ups (the confirmations from the same pass are listed in AUDIT.md):
+
+- Validate the profile **before** starting the relay service, and pin `FREEMODELS_RUNTIME_DIR` in the unit, so
+  a bad profile cannot leave a restart-looping relay and setup cannot read a different `proxy.key` than the
+  service created.
+- The resolved-config isolation check now pins the provider set, missing endpoint overrides, MCP servers,
+  the agent set, `share` and `autoupdate`. Tests plant each tamper and assert startup is refused.
+- The supervisor validates `OPENCODE_BIN` like setup does (absolute, executable), instead of accepting a bare
+  name or a relative path resolved against the private work directory.
+- The installer's repair only reacts to pnpm's own integrity error naming that exact pinned URL; loose
+  `integrity|checksum` text can no longer rewrite the entry.
+- `stateToken` now enforces 0700 on the state directory, not only 0600 on the token file.
+
 ## 0.2.8
 
 - The READMEs now lead with the mandatory OpenCode requirement and a port table, and embed a simple layout PNG

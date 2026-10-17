@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.8) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.9) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.8}"
+VERSION="${VERSION:-0.2.9}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -55,9 +55,11 @@ const evidence = () => {
   return parts.join('\n');
 };
 const integrityMismatch = () => {
-  if (current.startsWith('file:') || current === url) return false;
+  // Only a pinned remote tarball can carry a stale integrity, and pnpm names the full URL in
+  // ERR_PNPM_TARBALL_INTEGRITY. A bare version range would match a substring far too easily.
+  if (!/^https?:\/\//.test(current) || current === url) return false;
   const text = evidence();
-  return /integrity|checksum/i.test(text) && (text.includes(current) || text.includes(path.basename(current)));
+  return /ERR_PNPM_TARBALL_INTEGRITY|Got unexpected checksum/i.test(text) && text.includes(current);
 };
 const reason = localMissing() ? 'the local tarball is gone' : integrityMismatch() ? 'the published tarball no longer matches the locked integrity' : undefined;
 if (reason === undefined) process.exit(1);

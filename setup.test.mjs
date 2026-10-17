@@ -106,11 +106,14 @@ test('setup uses a real authenticated HTTP request without DSH runtime path assu
   assert.equal(result.models, 1);
 });
 test('generated systemd unit is absolute, portable and hardened', () => {
-  const unit = serviceUnit({ node: '/usr/bin/node', script: '/opt/dsh zen/supervisor.mjs', opencodeDir: '/opt/bin', opencodeBin: '/opt/bin/opencode' });
+  const unit = serviceUnit({ node: '/usr/bin/node', script: '/opt/dsh zen/supervisor.mjs', opencodeDir: '/opt/bin',
+    opencodeBin: '/opt/bin/opencode', runtimeDir: '/home/operator/.local/state/dsh-opencode-zen' });
   assert.match(unit, /^ExecStart="\/usr\/bin\/node" "\/opt\/dsh zen\/supervisor\.mjs" run$/m);
   assert.match(unit, /^Environment="PATH=\/opt\/bin:\/usr\/bin:/m);
   // The supervisor spawns by name, so the unit must name the binary it verified.
   assert.match(unit, /^Environment="OPENCODE_BIN=\/opt\/bin\/opencode"$/m);
+  // The service must use the same state directory that setup reads proxy.key from.
+  assert.match(unit, /^Environment="FREEMODELS_RUNTIME_DIR=\/home\/operator\/\.local\/state\/dsh-opencode-zen"$/m);
   for (const line of ['Type=simple', 'Restart=on-failure', 'UMask=0077', 'NoNewPrivileges=yes', 'PrivateTmp=yes', 'WorkingDirectory=/tmp', 'WantedBy=default.target']) {
     assert.ok(unit.includes(line), line);
   }
@@ -119,7 +122,9 @@ test('generated systemd unit is absolute, portable and hardened', () => {
     { node: '/n', script: 'relative', opencodeDir: '/b', opencodeBin: '/b/opencode' },
     { node: '/n', script: '/s', opencodeDir: '/b', opencodeBin: '/b/opencode' + '"\nExecStart=/bin/sh' },
     // % introduces systemd specifiers, so a path containing one is refused too.
-    { node: '/n', script: '/s', opencodeDir: '/b', opencodeBin: '/b/%i' }]) assert.throws(() => serviceUnit(bad), /cannot generate a systemd unit/);
+    { node: '/n', script: '/s', opencodeDir: '/b', opencodeBin: '/b/%i' },
+    { node: '/n', script: '/s', opencodeDir: '/b', opencodeBin: '/b/opencode', runtimeDir: 'relative' }])
+    assert.throws(() => serviceUnit(bad), /cannot generate a systemd unit/);
 });
 test('--service without --install and missing opencode/systemctl fail before any write', async t => {
   const f = await fixture(t);

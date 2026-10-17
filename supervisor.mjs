@@ -136,7 +136,14 @@ async function run() {
       OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_EXPERIMENTAL_NATIVE_LLM: 'false',
       FREEMODELS_BRIDGE_URL: `http://127.0.0.1:${proxyPort}`,
     };
-    const opencode = start(process.env.OPENCODE_BIN || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
+    const requested = process.env.OPENCODE_BIN;
+    if (requested !== undefined && requested !== '') {
+      // Same rule as setup: an explicit binary must be an absolute, executable file.
+      if (!path.isAbsolute(requested)) throw new Error('OPENCODE_BIN must be an absolute path');
+      const target = fs.statSync(requested, { throwIfNoEntry: false });
+      if (!target?.isFile() || (target.mode & 0o111) === 0) throw new Error(`OPENCODE_BIN is not an executable file: ${requested}`);
+    }
+    const opencode = start(requested || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
     const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
     let ready = false;
     for (let i = 0; i < 120 && !stopping; i++) {
@@ -154,6 +161,19 @@ async function run() {
         pluginMatches: resolved.plugin?.[0] === config.plugin[0], globalDeny: resolved.permission?.['*'] === 'deny',
         bridgeDeny: resolved.agent?.['dsh-bridge']?.permission?.['*'] === 'deny' })}`);
     }
+    // Pin everything a launcher or a planted runtime file could have added: an extra enabled
+    // provider, MCP server, agent, endpoint override or share setting would move traffic elsewhere.
+    const pinned = {
+      onlyZenProvider: Array.isArray(resolved.enabled_providers) && resolved.enabled_providers.length === 1 && resolved.enabled_providers[0] === 'opencode',
+      noExtraProviders: Object.keys(resolved.provider ?? {}).join() === 'opencode',
+      noEndpointOverride: Object.keys(resolved.provider?.opencode?.options ?? {}).length === 0,
+      noMcpServers: Object.keys(resolved.mcp ?? {}).length === 0,
+      onlyBridgeAgent: Object.keys(resolved.agent ?? {}).join() === 'dsh-bridge',
+      shareDisabled: resolved.share === 'disabled',
+      autoupdateOff: resolved.autoupdate === false,
+    };
+    const unpinned = Object.entries(pinned).filter(([, ok]) => ok !== true);
+    if (unpinned.length > 0) throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify(Object.fromEntries(unpinned))}`);
     start(process.execPath, [path.join(here, 'server.mjs')], { ...baseEnv, PORT: String(proxyPort), OPENCODE_URL: `http://127.0.0.1:${ocPort}` });
     ready = false;
     for (let i = 0; i < 60 && !stopping; i++) {
