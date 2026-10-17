@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- The manager's operation log holds only the command line, so the repair now takes its evidence from the
+  captured installer output as well. Without that, an integrity mismatch could not be recognised and the
+  recovery path added in 0.2.6 never ran. A test covers both evidence sources.
+
 ## 0.2.6
 
 - Released artifacts are immutable: never re-upload a tarball at an existing version. Doing that leaves every

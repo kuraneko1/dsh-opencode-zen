@@ -159,8 +159,8 @@ test('the installer repairs the two states that block later pnpm operations', as
     const manifest = path.join(root, 'package.json');
     const url = 'https://example.test/dsh-opencode-zen-1.0.0.tgz';
     const logs = path.join(root, '.plugin-manager/logs/operation-x');
-    const run = () => spawnSync('bash', [repair], { encoding: 'utf8',
-      env: { ...process.env, MANIFEST: manifest, TARBALL: url, PACKAGE: 'dsh-opencode-zen' } });
+    const run = (pnpmOutput = '') => spawnSync('bash', [repair], { encoding: 'utf8',
+      env: { ...process.env, MANIFEST: manifest, TARBALL: url, PACKAGE: 'dsh-opencode-zen', PNPM_OUTPUT: pnpmOutput } });
     const addLog = async text => {
       await fs.mkdir(logs, { recursive: true });
       await fs.writeFile(path.join(logs, 'pnpm.log'), text);
@@ -184,6 +184,14 @@ test('the installer repairs the two states that block later pnpm operations', as
     assert.equal(mismatch.status, 0, mismatch.stderr);
     assert.match(mismatch.stderr, /no longer matches the locked integrity/);
     assert.equal(JSON.parse(await fs.readFile(manifest, 'utf8')).dependencies['dsh-opencode-zen'], url);
+
+    // 2b. The same signal from the captured output, because the manager's log is often just the command line.
+    await fs.rm(path.join(root, '.plugin-manager'), { recursive: true, force: true });
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': 'https://example.test/old.tgz' } }));
+    const captured = run('[ERR_PNPM_TARBALL_INTEGRITY] Got unexpected checksum for "https://example.test/old.tgz"');
+    assert.equal(captured.status, 0, captured.stderr);
+    assert.match(captured.stderr, /no longer matches the locked integrity/);
+    assert.equal(run('nothing about checksums').status, 1);
 
     // 3. Nothing to do: already correct, another package, or a present local file.
     assert.equal(run().status, 1);

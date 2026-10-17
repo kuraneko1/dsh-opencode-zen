@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.6) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.7) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.6}"
+VERSION="${VERSION:-0.2.7}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -37,16 +37,20 @@ const localMissing = () => {
 };
 // pnpm keeps the manager's diagnostics in the newest operation log. Only trust it when it
 // names this exact entry: an unrelated failure must not rewrite a deliberate local pin.
-const integrityMismatch = () => {
-  if (current.startsWith('file:') || current === url) return false;
+const evidence = () => {
+  const parts = [process.env.PNPM_OUTPUT ?? ''];
   try {
     const newest = fs.readdirSync(logRoot).map((entry) => path.join(logRoot, entry, 'pnpm.log'))
       .filter((candidate) => fs.existsSync(candidate))
       .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];
-    if (newest === undefined) return false;
-    const text = fs.readFileSync(newest, 'utf8');
-    return /integrity|checksum/i.test(text) && (text.includes(current) || text.includes(path.basename(current)));
-  } catch { return false; }
+    if (newest !== undefined) parts.push(fs.readFileSync(newest, 'utf8'));
+  } catch { /* No logs is not evidence. */ }
+  return parts.join('\n');
+};
+const integrityMismatch = () => {
+  if (current.startsWith('file:') || current === url) return false;
+  const text = evidence();
+  return /integrity|checksum/i.test(text) && (text.includes(current) || text.includes(path.basename(current)));
 };
 const reason = localMissing() ? 'the local tarball is gone' : integrityMismatch() ? 'the published tarball no longer matches the locked integrity' : undefined;
 if (reason === undefined) process.exit(1);
@@ -78,13 +82,16 @@ else
     || { echo "install: opencode not found on PATH; install OpenCode or set OPENCODE_BIN to its binary" >&2; exit 1; }
 fi
 
-add_plugin() { "$launcher" plugin --profile "$PROFILE" add "$TARBALL"; }
-
 echo "install: adding $PACKAGE $VERSION to profile '$PROFILE' with $launcher"
-if ! add_plugin; then
-  if repair_blocking_dependency; then
+# The manager's own log holds only the command line, so capture its output as the evidence
+# the repair needs (it also still reads the newest log as a fallback).
+add_output=""
+if ! add_output="$("$launcher" plugin --profile "$PROFILE" add "$TARBALL" 2>&1)"; then
+  printf '%s\n' "$add_output" >&2
+  if PNPM_OUTPUT="$add_output" repair_blocking_dependency; then
     echo "install: retrying the install"
-    if ! add_plugin; then
+    if ! add_output="$("$launcher" plugin --profile "$PROFILE" add "$TARBALL" 2>&1)"; then
+      printf '%s\n' "$add_output" >&2
       echo "install: still refused; see the diagnostics above and re-run" >&2
       exit 1
     fi
