@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.18/dsh-opencode-zen-0.2.18.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.19/dsh-opencode-zen-0.2.19.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -95,6 +95,22 @@ IPv6 `2402:6b00:…` (no client impersonation anywhere in this project).
 - A credential (`opencode auth login --provider opencode`) may or may not be needed; anonymous requests
   work on some networks, so a missing credential is not proof of the cause.
 - If it still refuses, that is the provider's decision. This plugin does not work around it.
+
+### When a plain client works but the relay still answers 403
+
+The provider's gate looks at **the egress path** (measured 2026-10-17: the same account and client
+version were accepted over IPv6 and refused over IPv4). This host had `ipv6.method=disabled` on its
+wired connection, so everything left over IPv4 and was refused.
+
+1. Check the path: `ip -6 route show default` and `curl -6 https://api64.ipify.org`.
+2. Enable it if missing, e.g. `nmcli connection modify "<name>" ipv6.method auto` then
+   `nmcli device reapply <NIC>`.
+3. **Restart the relay after enabling IPv6**: `systemctl --user restart dsh-opencode-zen.service`.
+   The dedicated OpenCode picks its route once at startup and will not switch on its own — that is
+   exactly why a plain client worked while the relay kept answering 403. From 0.2.19 the relay
+   notices that the machine gained IPv6 while the upstream keeps refusing and **restarts the
+   dedicated OpenCode by itself**.
+4. `GET /health` reports `egress.ipv6` and `refusals.count` so this is observable.
 
 ## Good to know
 

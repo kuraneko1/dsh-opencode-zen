@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.19
+
+Diagnosed from a real failure: a host with `ipv6.method=disabled` was refused with `403 FreeTierError`
+(the provider's gate looks at the egress path), and **after IPv6 was enabled a plain client worked while
+the relay kept answering 403** — the dedicated OpenCode had resolved the upstream before IPv6 existed and
+never switches path on its own.
+
+- `/health` now reports `egress.ipv6` (does this machine have a routable global IPv6 address) and
+  `refusals.count` (upstream 403s), so the condition is observable instead of guessed.
+- The supervisor watches those refusals and, when the machine has since gained a global IPv6 address,
+  restarts the dedicated OpenCode once (five-minute cooldown) so the new path is used without a human
+  thinking of a restart. It never hides a refusal and never alters the network.
+- A refused or dropped relay connection is retried (roughly two seconds) before the catalogue is declared
+  unavailable, so a relay restart no longer blanks the model list for the life of a session. A timeout or
+  an HTTP status is a real answer and is not retried.
+- Startup now says so on the console when the machine has no global IPv6 address.
+
 ## 0.2.18
 
 **The plugin's own deny-all configuration was breaking the free tier.** Measured on a machine where a

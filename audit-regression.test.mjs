@@ -74,7 +74,7 @@ async function harness(t, options = {}) {
         const callback = `${base}/internal/bridge/${payload.system.slice('dsh-bridge:'.length)}`;
         const original = await fetch(callback).then(r => r.json());
         state.payloads.push(original);
-        const posted = await fetch(callback, { method: 'POST', headers: { 'content-type': 'text/event-stream', 'x-upstream-status': '200' }, body: frame });
+        const posted = await fetch(callback, { method: 'POST', headers: { 'content-type': 'text/event-stream', 'x-upstream-status': String(options.upstreamStatus ?? 200) }, body: frame });
         await posted.arrayBuffer();
         return send(res, { parts: [{ type: 'text', text: 'Relayed.' }] });
       }
@@ -139,6 +139,17 @@ test('only published OpenCode zero-cost Zen IDs are allowed, including big-pickl
     assert.equal(response.status, 200, model); await response.arrayBuffer();
   }
   assert.ok(h.state.calls.filter(c => c.path.endsWith('/message')).every(c => c.payload.model.providerID === 'opencode'));
+});
+
+test('health reports the egress path and counts upstream refusals for the supervisor', async t => {
+  const h = await harness(t, { upstreamStatus: 403 });
+  const before = await fetch(h.base + '/health', { signal: AbortSignal.timeout(2000) }).then(r => r.json());
+  assert.equal(typeof before.egress?.ipv6, 'boolean', 'the egress family must be reported');
+  assert.equal(before.refusals?.count, 0);
+  await h.request(body()).then(r => r.arrayBuffer());
+  const after = await fetch(h.base + '/health', { signal: AbortSignal.timeout(2000) }).then(r => r.json());
+  assert.equal(after.refusals.count, 1, 'a 403 from the upstream is what the relay recycles on');
+  assert.match(after.refusals.lastAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('reusable proxy never reads credential files or forwards external provider API keys', async t => {

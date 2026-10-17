@@ -2,6 +2,7 @@
 // One foreground owner; never trust an old child PID file to stop a process.
 import fs from 'node:fs';
 import path from 'node:path';
+import { globalIPv6, shouldRecycle } from './egress-path.mjs';
 import { runtimeDirectory, stateToken } from './runtime-path.mjs';
 import { opencodeAuthFile, readFreeTierCredential } from './opencode-auth.mjs';
 import { opencodeModelOverrides } from './zen-limits.mjs';
@@ -97,6 +98,10 @@ async function run() {
   privateFile(stateFile, JSON.stringify({ pid: process.pid, start: ticks(process.pid), script, ocPort, proxyPort }) + '\n', 'wx');
   const children = [];
   let stopping = false;
+  let recycling = false;
+  // Recorded before the client starts: a client that began on a refused path keeps using it until
+  // it is restarted, which is exactly what happened when this host gained IPv6 at 18:40 today.
+  const ipv6AtStart = globalIPv6();
   const cleanup = () => { removeExact(path.join(runtime, 'oc-data/opencode/auth.json')); removeExact(stateFile); };
   async function shutdown(code) {
     if (stopping) return;
@@ -113,7 +118,7 @@ async function run() {
     const child = spawn(command, args, { cwd, env, stdio: 'inherit' });
     children.push(child);
     child.once('error', err => { console.error(`startup failed: ${err.message}`); shutdown(1); });
-    child.once('exit', () => { if (!stopping) shutdown(1); });
+    child.once('exit', () => { if (!stopping && !recycling) shutdown(1); });
     return child;
   };
   try {
@@ -152,7 +157,12 @@ async function run() {
       const target = fs.statSync(requested, { throwIfNoEntry: false });
       if (!target?.isFile() || (target.mode & 0o111) === 0) throw new Error(`OPENCODE_BIN is not an executable file: ${requested}`);
     }
-    const opencode = start(requested || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
+    let opencode;
+    const spawnOpencode = () => {
+      opencode = start(requested || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
+      return opencode;
+    };
+    opencode = spawnOpencode();
     const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
     // Bound by wall-clock, not by a fixed number of attempts: on a cold cache the client fetches
     // its model metadata first and can ignore a short probe for a minute or more (measured in a
@@ -208,6 +218,51 @@ async function run() {
     }
     if (!ready) throw new Error('proxy did not become ready');
     console.error(`supervised proxy: http://127.0.0.1:${proxyPort}/v1 (private credentials; Ctrl-C to stop)`);
+    if (!ipv6AtStart) console.error('supervised: this machine has no global IPv6 address; if the provider refuses the free tier (403 FreeTierError), the network path is the cause');
+    let refusalsSeen = 0, lastRecycleAt = 0, lastHintAt = 0;
+    const watch = setInterval(async () => {
+      if (stopping || recycling) return;
+      let snapshot;
+      try {
+        snapshot = await fetch(`http://127.0.0.1:${proxyPort}/health`, { signal: AbortSignal.timeout(3000), redirect: 'error' }).then(r => r.json());
+      } catch { return; }
+      const refusals = Number(snapshot?.refusals?.count ?? 0);
+      if (!Number.isFinite(refusals) || refusals <= refusalsSeen) return;
+      const grew = refusals - refusalsSeen;
+      refusalsSeen = refusals;
+      const now = Date.now();
+      if (shouldRecycle({ grew, ipv6AtStart, ipv6Now: globalIPv6(), sinceLastRecycleMs: now - lastRecycleAt })) {
+        lastRecycleAt = now;
+        console.error('supervised: recycling the dedicated OpenCode - this machine gained a global IPv6 address after it started, and the upstream refused the free tier');
+        recycling = true;
+        try {
+          opencode.kill('SIGTERM');
+          await Promise.race([new Promise(resolve => opencode.once('exit', resolve)), delay(5000)]);
+          if (opencode.exitCode === null && opencode.signalCode === null) opencode.kill('SIGKILL');
+          const index = children.indexOf(opencode);
+          if (index >= 0) children.splice(index, 1);
+          await delay(500);
+          spawnOpencode();
+          const deadline = Date.now() + 150_000;
+          let up = false;
+          while (!stopping && Date.now() < deadline) {
+            try { up = (await fetch(`http://127.0.0.1:${ocPort}/global/health`, { headers: { authorization }, signal: AbortSignal.timeout(3000), redirect: 'error' })).ok; } catch { /* Still starting. */ }
+            if (up) break;
+            await delay(500);
+          }
+          console.error(up ? 'supervised: dedicated OpenCode restarted; it now resolves the upstream over the new network path'
+            : 'supervised: dedicated OpenCode did not come back after recycling');
+        } catch (error) {
+          console.error(`supervised: recycling the dedicated OpenCode failed: ${error.message}`);
+        } finally { recycling = false; }
+        return;
+      }
+      if (now - lastHintAt >= 300_000) {
+        lastHintAt = now;
+        console.error(`supervised: the upstream refused the free tier ${grew} more time(s) (403 FreeTierError); globalIPv6=${globalIPv6()} - run the bundled doctor if this keeps happening`);
+      }
+    }, 10_000);
+    watch.unref?.();
   } catch (err) { console.error(err.message); await shutdown(1); }
 }
 

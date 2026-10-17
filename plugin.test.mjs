@@ -17,6 +17,7 @@ async function host(t, options = {}) {
   const state = { catalog: [zen()], key: 'test-proxy-key', requests: [], completions: [], ...options };
   const server = createServer(async (req, res) => {
     state.requests.push({ url: req.url, authorization: req.headers.authorization });
+    if (state.refuseFirst > 0) { state.refuseFirst--; req.socket.destroy(); return; }
     if (req.headers.authorization !== `Bearer ${state.key}`) { res.writeHead(401).end(); return; }
     if (req.url === '/v1/models') {
       if (state.hang) return;
@@ -62,6 +63,20 @@ async function host(t, options = {}) {
 
 const request = (extra = {}) => ({ provider: plugin.name, model: 'zen/example',
   messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }], ...extra });
+
+test('a refused relay connection is retried instead of blanking the model list', async (t) => {
+  // A relay restart refuses connections for a moment; that must not cost the session its models.
+  const { adapter, state } = await host(t, { refuseFirst: 1 });
+  const models = await adapter.listModels(plugin.name);
+  assert.equal(models.length, 1);
+  assert.equal(state.requests.filter(request => request.url === '/v1/models').length, 2, 'one refusal is retried');
+});
+
+test('a timeout or a bad body is not retried, so a real answer stays fast', async (t) => {
+  const { adapter, state } = await host(t, { status: 500 });
+  await assert.rejects(adapter.listModels(plugin.name), { code: 'CATALOG_UNAVAILABLE' });
+  assert.equal(state.requests.filter(request => request.url === '/v1/models').length, 1);
+});
 
 test('standard Cordis plugin uses the public PiAiAdapter and owns only opencode-zen', async (t) => {
   const { ctx, fiber, adapter, state } = await host(t);

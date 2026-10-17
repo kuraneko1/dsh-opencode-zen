@@ -17,6 +17,41 @@ export const Config = Schema.object({
 const DISPLAY_NAME = 'OpenCode Zen (free)';
 const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const TTL_MS = 60_000;
+// A relay restart must not blank the model list for the life of a session. Only a refused or
+// unreachable socket is retried: a timeout, an HTTP status or a bad body is a real answer, and the
+// next listModels call retries again anyway.
+const CATALOG_RETRY_WAITS = [0, 500, 1500];
+// Measured shapes: a stopped relay gives TypeError('fetch failed') with cause.code ECONNREFUSED, a
+// relay that drops the socket gives cause.code UND_ERR_SOCKET, and a timeout arrives as a
+// TimeoutError DOMException - which is a real answer and must not be retried.
+const RETRYABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH',
+  'ENETUNREACH', 'EPIPE', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT']);
+const NOT_RETRYABLE_NAMES = new Set(['TimeoutError', 'AbortError']);
+export function retryableConnectionError(error) {
+  const walk = (node, depth) => {
+    if (!node || depth > 4) return false;
+    if (NOT_RETRYABLE_NAMES.has(node.name)) return false;
+    if (RETRYABLE_CODES.has(String(node.code ?? ''))) return true;
+    if (Array.isArray(node.errors) && node.errors.some(inner => walk(inner, depth + 1))) return true;
+    return walk(node.cause, depth + 1);
+  };
+  return walk(error, 0);
+}
+async function fetchCatalog(url, headers, signal) {
+  let last;
+  for (const wait of CATALOG_RETRY_WAITS) {
+    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+    signal.throwIfAborted();
+    try {
+      return await fetch(url, { redirect: 'error', headers,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) });
+    } catch (error) {
+      if (error instanceof LlmError || !retryableConnectionError(error)) throw error;
+      last = error;
+    }
+  }
+  throw last ?? new LlmError('opencode-zen: proxy catalog request failed', 'CATALOG_UNAVAILABLE');
+}
 const TIMEOUT_MS = 5_000;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
 
@@ -116,10 +151,8 @@ export function apply(ctx, rawConfig) {
     refreshing = (async () => {
       try {
         const key = await resolveApiKey();
-        const response = await fetch(`${baseURL}/models`, { redirect: 'error',
-          headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-          signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(TIMEOUT_MS)]),
-        });
+        const response = await fetchCatalog(`${baseURL}/models`,
+          { authorization: `Bearer ${key}`, accept: 'application/json' }, lifetime.signal);
         profiles = profilesFor(catalogModels(await readCatalog(response), baseURL));
         expires = Date.now() + TTL_MS;
       } catch (error) {

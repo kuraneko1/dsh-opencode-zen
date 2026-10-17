@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COPIED = ['supervisor.mjs', 'server.mjs', 'opencode-bridge.mjs', 'opencode-plugin.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'opencode-auth.mjs'];
+const COPIED = ['supervisor.mjs', 'server.mjs', 'opencode-bridge.mjs', 'opencode-plugin.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'opencode-auth.mjs', 'egress-path.mjs'];
 const FAKE_OC = `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';

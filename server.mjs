@@ -6,6 +6,7 @@ import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { format } from 'node:util';
+import { globalIPv6 } from './egress-path.mjs';
 import { createBridge } from './opencode-bridge.mjs';
 import { runtimeDirectory } from './runtime-path.mjs';
 
@@ -112,7 +113,12 @@ export function createProxy({ apiKey, ocURL = 'http://127.0.0.1:4096', ocPasswor
     if (!response.ok) { await response.body?.cancel(); throw new Error(`OpenCode HTTP ${response.status}`); }
     return response.status === 204 ? {} : response.json();
   }
-  const bridge = createBridge({ oc, timeoutMs, log });
+  // A 403 from the upstream is the free-tier refusal; the count is what the supervisor watches to
+  // decide whether the dedicated client is stuck on a network path the provider no longer accepts.
+  const refusals = { count: 0, lastAt: null };
+  const bridge = createBridge({ oc, timeoutMs, log, onUpstreamStatus: status => {
+    if (status === 403) { refusals.count++; refusals.lastAt = new Date().toISOString(); }
+  } });
   function refresh() {
     if (refreshing) return refreshing;
     refreshing = (async () => {
@@ -154,7 +160,10 @@ export function createProxy({ apiKey, ocURL = 'http://127.0.0.1:4096', ocPasswor
     if (url.origin !== 'http://127.0.0.1') throw fail(400, 'absolute request targets are not supported');
     // Internal one-use capabilities are separate from the public API key.
     if (await bridge.handle(req, res, url)) return;
-    if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, upstreams: health, models: models.size, active });
+    if (req.method === 'GET' && url.pathname === '/health') {
+      return json(res, 200, { ok: true, upstreams: health, models: models.size, active,
+        egress: { ipv6: globalIPv6() }, refusals: { ...refusals } });
+    }
     if (!equal(req.headers.authorization, `Bearer ${apiKey}`)) throw fail(401, 'authentication required');
     if (req.method === 'GET' && url.pathname === '/v1/models') {
       return json(res, 200, { object: 'list', data: [...models].map(([id, m]) => ({ ...m, id, object: 'model', owned_by: `freemodels:${m.route}` })) });

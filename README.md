@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.18/dsh-opencode-zen-0.2.18.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.19/dsh-opencode-zen-0.2.19.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -91,6 +91,29 @@ node zen-doctor.mjs
 - 資格情報（`opencode auth login --provider opencode`）が必要な場合もあります。匿名で通る回線もあるため、
   未設定でも即失敗とは限りません。
 - それでも403なら提供元の判断です。このプラグインは回避しません。
+
+### 「素のCLIは通るのに、リレー経由だけ403」になるとき
+
+提供元のゲートは**回線の出口**を見ています（2026-10-17 実測: 同じアカウント・同じ版でも、IPv6の出口は受理、IPv4の出口は拒否）。
+実際にこのホストでは有線接続が `ipv6.method=disabled` で IPv6 が無く、IPv4で出ていたため拒否されていました。手順は:
+
+1. 回線を確認する
+   ```bash
+   ip -6 route show default          # 既定IPv6ルートが無ければIPv6が出ていない
+   curl -6 https://api64.ipify.org   # 200 ならIPv6で出られている
+   ```
+2. 無ければ有効化する（例: NetworkManager）
+   ```bash
+   nmcli connection modify "<接続名>" ipv6.method auto
+   nmcli device reapply <NIC>
+   ```
+3. **IPv6を後から有効にしたら、リレーを再起動する**
+   ```bash
+   systemctl --user restart dsh-opencode-zen.service
+   ```
+   専用OpenCodeは起動時に経路を決めるため、**後からIPv6が生えても自分では乗り換えません**（これが「素のCLIは通るのにリレーだけ403」の正体）。
+   0.2.19 以降は、拒否が続いたうえでIPv6が新たに使えるようになったことを検知すると、**自動で専用OpenCodeを再起動**します。
+4. 状態は `GET /health` で見られます: `egress.ipv6`（この機械がグローバルIPv6を持つか）と `refusals.count`（上流に403で拒否された累計）。
 
 ## 知っておくこと
 

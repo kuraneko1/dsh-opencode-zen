@@ -147,7 +147,7 @@ function abortable(promise, signal) {
 }
 
 // Capabilities are single-use and live only for the duration of one request.
-export function createBridge({ oc, timeoutMs, log, limits = {} }) {
+export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus = () => {} }) {
   const pending = new Map();
   async function handle(req, res, url) {
     if (!url.pathname.startsWith(PREFIX)) return false;
@@ -164,6 +164,7 @@ export function createBridge({ oc, timeoutMs, log, limits = {} }) {
     if (!Number.isInteger(status) || status < 200 || status > 599) {
       res.writeHead(400).end(); entry.reject(new Error('invalid bridge response status')); return true;
     }
+    try { onUpstreamStatus(status); } catch { /* Reporting must never break the relay. */ }
     entry.started = true;
     const cancel = () => req.destroy(entry.signal.reason);
     entry.signal.addEventListener('abort', cancel, { once: true });
