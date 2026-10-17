@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,11 +21,52 @@ test('package is a licensed native DSH bundle, not a private machine-specific se
   assert.match(await fs.readFile(path.join(here, 'LICENSE'), 'utf8'), /MIT License/);
 });
 
+test('manifest follows the published DSH author fields', () => {
+  assert.equal(metadata.dsh.manifestVersion, 1);
+  // engines.dsh and every enforced DSH peer must declare one identical host range.
+  const range = metadata.engines.dsh;
+  assert.match(range, /^\^0\.2\.0-rc\.2$/);
+  for (const [name, value] of Object.entries(metadata.peerDependencies)) {
+    if (name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')) assert.equal(value, range, name);
+  }
+  assert.equal(metadata.exports['./package.json'], './package.json');
+  assert.equal(metadata.exports['./locale/*.json'], './locale/*.json');
+});
+
+test('display metadata follows the reader contract: locale dictionaries plus a bounded icon', async () => {
+  assert.equal(metadata.icon, './icon.svg');
+  assert.ok(metadata.files.includes('locale/*.json') && metadata.files.includes('icon.svg'));
+  // dsh-app-boot reads <specifier>/locale/en.json and each sibling <language>.json as { meta: { title, description } }.
+  for (const language of ['en', 'ja']) {
+    const parsed = JSON.parse(await fs.readFile(path.join(here, 'locale', `${language}.json`), 'utf8'));
+    assert.equal(typeof parsed.meta?.title, 'string'); assert.ok(parsed.meta.title.length > 0, language);
+    assert.equal(typeof parsed.meta?.description, 'string'); assert.ok(parsed.meta.description.length > 0, language);
+    assert.deepEqual(Object.keys(parsed.meta).sort(), ['description', 'title']);
+  }
+  const icon = await fs.readFile(path.join(here, 'icon.svg'));
+  assert.ok(icon.byteLength < 256 * 1024, 'icon must stay under the 256 KiB reader limit');
+  assert.match(icon.toString(), /^<svg[\s>]/);
+});
+
+test("DSH's own reader resolves the localized title, description and icon from this directory", async () => {
+  // The contract test that would have caught a wrong locale path or export pattern.
+  const { readPluginMeta } = await import('@deepseek-ai/dsh-app-boot');
+  const base = pathToFileURL(`${here}/`).href;
+  const meta = readPluginMeta(metadata.name, base);
+  assert.equal(meta.error, undefined);
+  assert.deepEqual(meta.title, { en: 'OpenCode Zen (free)', ja: 'OpenCode Zen（無料）' });
+  assert.match(meta.description.en, /authenticated loopback relay/);
+  assert.match(meta.description.ja, /ローカル中継/);
+  assert.match(meta.icon, /^data:image\/svg\+xml;base64,/);
+  // A non-package specifier yields nothing rather than a bogus entry.
+  assert.equal(readPluginMeta('./index.mjs', base), undefined);
+});
+
 test('npm payload contains the plugin, supervisor and tests but no state, credentials or historical routes', { timeout: 30000 }, () => {
   const result = spawnSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { cwd: here, encoding: 'utf8', timeout: 25000 });
   assert.equal(result.status, 0, result.stderr);
   const files = JSON.parse(result.stdout)[0].files.map(file => file.path);
-  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'cordis.patch.yml', 'plugin.test.mjs', 'LICENSE']) assert.ok(files.includes(name), name);
+  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'cordis.patch.yml', 'plugin.test.mjs', 'LICENSE', 'icon.svg', 'locale/en.json', 'locale/ja.json']) assert.ok(files.includes(name), name);
   for (const name of files) {
     assert.ok(!/(^|\/)(runtime|node_modules|\.env|\.credentials\.yaml)(\/|$)/.test(name), name);
     assert.ok(!/\.key$|auth\.json|\.bak|^bench_|catalog\.json|dsh-freemodels\.patch|oc-models/.test(name), name);

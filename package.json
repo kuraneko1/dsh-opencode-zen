@@ -1,6 +1,6 @@
 {
   "name": "dsh-opencode-zen",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "OpenCode Zen free models as a native DSH/RDSH provider plugin with an isolated local relay",
   "type": "module",
   "license": "MIT",
@@ -18,7 +18,8 @@
     ".": "./index.mjs",
     "./opencode-plugin": "./opencode-plugin.mjs",
     "./server": "./opencode-plugin.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "bin": {
     "dsh-opencode-zen-proxy": "./supervisor.mjs",
@@ -43,10 +44,13 @@
     "*.test.mjs",
     "bridge-smoke.mjs",
     "rdsh-smoke.mjs",
-    "bench-context.mjs"
+    "bench-context.mjs",
+    "locale/*.json",
+    "icon.svg"
   ],
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.19.0",
+    "dsh": "^0.2.0-rc.2"
   },
   "os": [
     "linux"
@@ -60,20 +64,21 @@
     "plugin"
   ],
   "dsh": {
+    "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "@deepseek-ai/dsh": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm-pi-ai": "0.2.0-rc.2",
-    "@earendil-works/pi-ai": "0.87.1"
+    "@deepseek-ai/dsh": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-credentials": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm-pi-ai": "^0.2.0-rc.2",
+    "@earendil-works/pi-ai": "^0.87.1"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "yaml": "^2.9.1"
   },
@@ -84,5 +89,10 @@
     "setup": "node setup.mjs",
     "test:live": "node bridge-smoke.mjs && node rdsh-smoke.mjs",
     "prepack": "node --test *.test.mjs"
+  },
+  "icon": "./icon.svg",
+  "devDependencies": {
+    "@deepseek-ai/dsh": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-app-boot": "^0.2.0-rc.2"
   }
 }

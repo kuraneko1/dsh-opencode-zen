@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3
+
+- Declare the standard DSH author fields: `dsh.manifestVersion: 1` and `engines.dsh`.
+- Add localized display metadata (`locale/en.json`, `locale/ja.json`) and an original MIT-licensed
+  `icon.svg`, so the Plugins page and cards show a real title, description and artwork instead of the raw
+  package name. Both are exported and included in the package payload.
+- Relax the enforced DSH peers from an exact prerelease pin to `^0.2.0-rc.2`, and `@earendil-works/pi-ai` to
+  `^0.87.1`, so a compatible DSH patch release no longer needs a new plugin release. A different prerelease
+  still needs an exact exemption in the profile's `compatibility.json`.
+- Document the Web Plugins page and `plugin_manager` install routes and the exemption commands.
+
 ## 0.2.2
 
 - Restore the measured long-context behaviour: the dedicated OpenCode client now gets an explicit per-model

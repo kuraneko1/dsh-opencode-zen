@@ -53,6 +53,30 @@ already-populated profile usually needs none of this.
 If the first `add` fails partway, retry it: pnpm can record the dependency while DSH has not yet written the
 bundle entry. `remove` then `add` is the reliable retry.
 
+### Other install routes
+
+The Web **Plugins** page uses DSH's own plugin manager, so pasting the release tarball URL there is the most
+conventional route: it runs the registry/path inspection, offers the build-script approval UI, and rolls the
+profile back if the install fails. Agents can do the same with the `plugin_manager` tool
+(`install_bundle`, with this package's directory as `target`).
+
+The package is also a normal npm-shaped bundle, so once you publish it to a registry,
+`dsh plugin --profile web add <name>@<range>` gives you version ranges, mirror fallback and a
+**pre-flight** peer compatibility check (a tarball or git spec is checked only after installation).
+
+### Compatibility
+
+`engines.dsh` and every enforced DSH peer declare `^0.2.0-rc.2`; the tested runtime is `0.2.0-rc.2`. A
+different DSH prerelease (for example `0.2.1-alpha.1`) does not satisfy that range, and DSH denies the row
+until you grant an exact exemption in the profile's `compatibility.json`:
+
+```bash
+dsh plugin --profile web version-exemptions
+dsh plugin --profile web allow-version dsh-opencode-zen@0.2.3 --dsh-version <runtime> --accept-risk
+```
+
+Granting an exemption asserts that you accept the risk; it does not make the combination tested.
+
 ### Without systemd, or with a custom service
 
 `--service` is optional. Start the relay yourself and run setup against it:
@@ -171,3 +195,8 @@ The npm package uses an explicit `files` allowlist. Runtime data, tokens, authen
 The source is MIT licensed and public at <https://github.com/kuraneko1/dsh-opencode-zen>.
 Run tests and inspect `npm pack --dry-run --ignore-scripts` before sharing.
 npm registry publication is not performed by this work; releases are distributed as GitHub release tarballs.
+
+The manifest declares the standard author fields (`dsh.manifestVersion`, `engines.dsh`, `dsh.bundle.patch`),
+localized display metadata (`locale/en.json`, `locale/ja.json`) and an original MIT-licensed `icon.svg`.
+Tests read them through DSH's own `readPluginMeta`, so a wrong locale path or export pattern fails the suite
+instead of silently falling back to the package name.

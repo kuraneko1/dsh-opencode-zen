@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="OpenCode Zen free-model relay">
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <circle cx="31" cy="27" r="15" fill="none" stroke="#38bdf8" stroke-width="4.5"
+          stroke-linecap="round" stroke-dasharray="74 21" transform="rotate(-38 31 27)"/>
+  <path d="M26 20.5l7 6.5-7 6.5" fill="none" stroke="#f8fafc" stroke-width="4.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M22 47h20" stroke="#e2e8f0" stroke-width="4.5" stroke-linecap="round"/>
+</svg>
