@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.16
+
+- Add `zen-doctor.mjs`: one real request through the relay plus the machine's egress family, with a
+  diagnosis. It exists because the free-tier gate turned out to be environment-dependent — a host on native
+  IPv6 (`2402:6b00:…`) was accepted while a host on IPv4 (`219.8.20.246`) was refused with the same account
+  and client version. READMEs document the finding and the tunnel workaround.
+- Correct a claim this disproved: a missing credential does not mean anonymous access is impossible. Setup and
+  the supervisor now say the credential may be needed, instead of asserting the free tier refuses anonymous
+  clients.
+
 ## 0.2.15
 
 Three waits now agree, so a cold first start cannot be mistaken for a failure (all three were hit

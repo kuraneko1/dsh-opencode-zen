@@ -257,7 +257,7 @@ export async function integrate({ install = false, service = false, dshHome = pr
     const plan = await prepare();
     patchChanged = plan.oldPatch !== plan.newPatch; credentialChanged = plan.oldCredentials !== plan.newCredentials;
   }
-  // The free tier refuses anonymous clients, so the adopted credential decides whether this works.
+  // Anonymous access works on some networks and not others, so this is reported, not required.
   const zenCredential = readFreeTierCredential(resolve(authFile)) !== null;
   return { mode: install ? 'installed' : 'dry-run', profile, provider: 'opencode-zen', models: models.length,
     excluded: catalog.data.length - models.length, patchChanged, credentialChanged, defaultModelChanged: false, zenCredential,
@@ -290,9 +290,10 @@ Requires the package to be installed in the profile first, for example:
   console.log(JSON.stringify(result, null, 2));
   if (!result.zenCredential) {
     console.log("");
-    console.log("note: no stored OpenCode credential was found. The free tier refuses anonymous clients with");
-    console.log("      403 FreeTierError, so run 'opencode auth login --provider opencode' once (this stores a credential");
-    console.log("      for the 'opencode' provider only) and then restart the relay.");
+    console.log("note: no stored OpenCode credential was found. That is fine where the provider accepts anonymous");
+    console.log("      requests; if calls fail with 403 FreeTierError, run 'opencode auth login --provider opencode'");
+    console.log("      once (it stores a credential for the 'opencode' provider only) and restart the relay.");
+    console.log("      The gate also depends on the network: run 'node zen-doctor.mjs' to see which side you are on.");
   }
 }
 // npm/pnpm bin shims are symlinks, so compare real paths: a plain resolve() would make this a silent no-op.

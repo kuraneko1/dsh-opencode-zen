@@ -123,7 +123,7 @@ async function run() {
     const adopted = readFreeTierCredential(opencodeAuthFile());
     privateFile(path.join(runtime, 'oc-data/opencode/auth.json'), JSON.stringify(adopted ?? {}));
     console.error(adopted === null
-      ? "warning: no stored OpenCode credential; the free tier refuses anonymous clients, so run 'opencode auth login --provider opencode' once and restart"
+      ? "warning: no stored OpenCode credential; if the provider answers 403 FreeTierError, run 'opencode auth login --provider opencode' once and restart"
       : 'supervised: adopted the stored OpenCode credential for the free tier');
     const picked = names => Object.fromEntries(names.filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]));
     const common = picked(['PATH', 'LANG', 'LC_ALL', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUEST_TIMEOUT_MS', 'STALL_TIMEOUT_MS']);

@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.15/dsh-opencode-zen-0.2.15.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.16/dsh-opencode-zen-0.2.16.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -72,12 +72,32 @@ systemctl --user restart dsh-opencode-zen.service   # ログイン後に中継�
 資格情報はOAuthではなく**APIキー**（`OPENCODE_API_KEY`）で、公式手順では[opencode.ai/auth](https://opencode.ai/auth)で
 サインインしてキーを取得します（サインイン時に請求情報の登録を求められる場合があります。無料モデルは cost 0 です）。
 
+## 403 FreeTierError が出るとき
+
+まず診断してください（リレー経由で1回だけ実際に叩きます）:
+
+```bash
+node zen-doctor.mjs
+```
+
+分かったこと（2026-10-17 実測）: **同じアカウント・同じ版でも、回線の出口がIPv6だと通り、IPv4だと拒否されます。**
+このホストはIPv4 `219.8.20.246` で拒否、z170-desktop はIPv6 `2402:6b00:…` で成功しました（クライアント偽装はしていません）。
+
+- **IPv4と判定された場合** → 回線のIPv6を有効化するか、出口が受け入れられているホストの中継を使ってください:
+  ```bash
+  ssh -N -L 8099:127.0.0.1:8099 ryu@<そのホスト>     # 相手の中継をローカル8099へ
+  ```
+  DSH側の資格情報は**相手ホストの `proxy.key`** に合わせてください（`dsh-opencode-zen-setup --install --key-file <それ>`）。
+- 資格情報（`opencode auth login --provider opencode`）が必要な場合もあります。匿名で通る回線もあるため、
+  未設定でも即失敗とは限りません。
+- それでも403なら提供元の判断です。このプラグインは回避しません。
+
 ## 知っておくこと
 
 - **長いセッション**: `deepseek-v4.1-flash-free` と `glm-5.3-flash-free` は実測1M（999,312 / 1,047,653トークン）として宣言します。他モデルは公開値のまま
 - **ツールなしの単発要求**は提供元が403 `FreeTierError` を返します。DSHは実際のツールを送るので通常利用は通ります
 - **空のプロファイル**ではDSH自身の依存のビルド承認を求められることがあります（`pnpm approve-builds`）。このプラグインにビルドスクリプトはありません
-- 認証付きloopback限定。**Zenの資格情報（`opencode auth login --provider opencode` で保存するAPIキー）が必要**です。中継はそれを `opencode` の1件だけ採用します（無料モデル自体は cost 0 で課金対象外）
+- 認証付きloopback限定。Zenの資格情報（`opencode auth login --provider opencode` で保存するAPIキー）は**必要な回線と不要な回線があります**（匿名で通る例を実測）。中継は保存があれば `opencode` の1件だけ採用します（無料モデル自体は cost 0）
 - 無料枠の継続・全モデル・将来バージョンは保証しません
 
 詳しい制約は [AUDIT.md](<AUDIT.md>)、変更履歴は [CHANGELOG.md](<CHANGELOG.md>)。

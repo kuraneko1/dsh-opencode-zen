@@ -1,4 +1,4 @@
-# Security and compatibility notes — 0.2.15
+# Security and compatibility notes — 0.2.16
 
 This is the **Zen-only native-plugin revision**, superseding the local multi-provider prototype. The supported path is [the native plugin](<index.mjs>), [relay](<server.mjs>), [OpenCode fetch hook](<opencode-plugin.mjs>), [bounded bridge](<opencode-bridge.mjs>) and [supervisor](<supervisor.mjs>). No OpenRouter, NVIDIA or local route is implemented.
 
@@ -86,6 +86,13 @@ starts the relay in the background and waits for `/health`, then setup registers
 relay reports 10 models. Three defects were found and fixed on the way: an existing profile was required
 (although `dsh plugin add` creates one), a missing pnpm only produced a one-line manager notice, and the
 `SERVICE=0` path ran setup without a running relay and failed.
+
+**Address family decides it (measured 2026-10-17):** the same account, the same OpenCode version and the
+same request were accepted from a host egressing over native IPv6 (`2402:6b00:…`) and refused with
+`403 FreeTierError` from a host egressing over IPv4 (`219.8.20.246`) with no IPv6 route of its own. A
+Docker container on the refused host inherits its IPv4 and is refused too. `zen-doctor.mjs` reports which
+side the current machine is on; the free lane is therefore environment-dependent rather than
+purely account-dependent, and the credential (or its absence) is not the discriminator.
 
 **What did not work, and why:** every model request returned `403 FreeTierError`. The same container with a
 plain `opencode run` — no config, no plugin, no proxy — returns the identical error on 1.19.3 and on the host's

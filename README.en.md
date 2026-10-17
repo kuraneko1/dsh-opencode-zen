@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.15/dsh-opencode-zen-0.2.15.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.16/dsh-opencode-zen-0.2.16.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -74,6 +74,27 @@ Context: the anonymous lane used to work without any credential, and the provide
 `opencode` provider takes an **API key** (`OPENCODE_API_KEY`), not OAuth — the documented path is to sign in at
 [opencode.ai/auth](https://opencode.ai/auth) and copy a key (the sign-up may ask for billing details; the free
 models are priced at 0).
+
+## When you get 403 FreeTierError
+
+Start with the diagnostic (it sends exactly one real request through the relay):
+
+```bash
+node zen-doctor.mjs
+```
+
+Measured on 2026-10-17: **the same account and the same client version were accepted over an IPv6
+egress and refused over IPv4.** This host was refused on IPv4 `219.8.20.246`; z170-desktop succeeded on
+IPv6 `2402:6b00:…` (no client impersonation anywhere in this project).
+
+- **Reported IPv4** → enable IPv6 on that network, or use a relay on a host whose egress is accepted:
+  ```bash
+  ssh -N -L 8099:127.0.0.1:8099 ryu@<that-host>     # its relay, on your local 8099
+  ```
+  Point DSH at **that host's `proxy.key`** (`dsh-opencode-zen-setup --install --key-file <its key>`).
+- A credential (`opencode auth login --provider opencode`) may or may not be needed; anonymous requests
+  work on some networks, so a missing credential is not proof of the cause.
+- If it still refuses, that is the provider's decision. This plugin does not work around it.
 
 ## Good to know
 
