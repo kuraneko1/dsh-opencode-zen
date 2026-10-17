@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+- `README.md` is Japanese now (the default page); English moved to `README.en.md`. Both are short, and the
+  detail lives in `AUDIT.md`.
+- Add `install.sh`: one command installs or upgrades the plugin, registers it and starts the relay service.
+  `PROFILE`, `VERSION`, `SERVICE` and `LAUNCHER` override the defaults.
+
 ## 0.2.3
 
 - Declare the standard DSH author fields: `dsh.manifestVersion: 1` and `engines.dsh`.

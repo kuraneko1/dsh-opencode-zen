@@ -128,3 +128,17 @@ test('symlinked npm bin shims still run the CLIs instead of exiting silently', a
     await fs.rm(resolved, { recursive: true, force: true });
   }
 });
+
+test('the default README is Japanese and the one-command installer is shippable', async () => {
+  const readme = await fs.readFile(path.join(here, 'README.md'), 'utf8');
+  assert.match(readme, /[\u3040-\u30ff\u4e00-\u9faf]/, 'README.md is the default page and must be Japanese');
+  assert.match(readme, /install\.sh/, 'the default README must show the one-command install');
+  for (const name of ['README.en.md', 'install.sh']) assert.ok(metadata.files.includes(name), name);
+  assert.equal(metadata.version, '0.2.4');
+  const installer = await fs.readFile(path.join(here, 'install.sh'), 'utf8');
+  assert.match(installer, /set -euo pipefail/);
+  assert.match(installer, /dsh-opencode-zen-\$\{VERSION\}\.tgz/, 'installer must fetch the released tarball');
+  assert.doesNotMatch(installer, /\/home\/ryu|kuraneko1@/);
+  const syntax = spawnSync('bash', ['-n', path.join(here, 'install.sh')], { encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr);
+});
