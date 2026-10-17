@@ -134,7 +134,12 @@ test('the default README is Japanese and the one-command installer is shippable'
   assert.match(readme, /[\u3040-\u30ff\u4e00-\u9faf]/, 'README.md is the default page and must be Japanese');
   assert.match(readme, /install\.sh/, 'the default README must show the one-command install');
   for (const name of ['README.en.md', 'install.sh']) assert.ok(metadata.files.includes(name), name);
-  assert.equal(metadata.version, '0.2.4');
+  // Docs must never point at an older tarball than the package itself.
+  for (const name of ['README.md', 'README.en.md', 'install.sh']) {
+    const text = await fs.readFile(path.join(here, name), 'utf8');
+    assert.ok(text.includes(metadata.version), `${name} must mention version ${metadata.version}`);
+  }
+  assert.match(await fs.readFile(path.join(here, 'README.md'), 'utf8'), new RegExp(`releases/download/v${metadata.version}/dsh-opencode-zen-${metadata.version}\\.tgz`));
   const installer = await fs.readFile(path.join(here, 'install.sh'), 'utf8');
   assert.match(installer, /set -euo pipefail/);
   assert.match(installer, /dsh-opencode-zen-\$\{VERSION\}\.tgz/, 'installer must fetch the released tarball');

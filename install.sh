@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.4) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.5) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.4}"
+VERSION="${VERSION:-0.2.5}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -52,9 +52,14 @@ if [[ -z "$launcher" ]]; then
   done
 fi
 [[ -n "$launcher" ]] || { echo "install: dsh (or rdsh) not found on PATH" >&2; exit 1; }
-for tool in node opencode; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "install: $tool not found on PATH" >&2; exit 1; }
-done
+command -v node >/dev/null 2>&1 || { echo "install: node not found on PATH" >&2; exit 1; }
+# Zen's free tier only accepts the real OpenCode client, so its binary is required.
+if [[ -n "${OPENCODE_BIN:-}" ]]; then
+  [[ -x "$OPENCODE_BIN" ]] || { echo "install: OPENCODE_BIN is not executable: $OPENCODE_BIN" >&2; exit 1; }
+else
+  command -v opencode >/dev/null 2>&1 \
+    || { echo "install: opencode not found on PATH; install OpenCode or set OPENCODE_BIN to its binary" >&2; exit 1; }
+fi
 
 add_plugin() { "$launcher" plugin --profile "$PROFILE" add "$TARBALL"; }
 

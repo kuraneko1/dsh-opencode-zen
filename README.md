@@ -5,6 +5,11 @@
 OpenCode Zen の**無料モデル専用**のDSHプラグイン。素の `dsh` でもRDSHでも動きます。
 実ツールを実行するのは呼び出し元のDSH/RDSHだけで、上流のOpenCodeは中継に徹します。
 
+## 必要なもの
+
+Linux / Node 22.19以上 / **`opencode` コマンド**（PATHにあるか `OPENCODE_BIN=/path/to/opencode` で指定）。
+Zenの無料枠はOpenCode本体からのリクエストしか受け付けないため、これが上流クライアントになります。
+
 ## インストール
 
 ```bash
@@ -22,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.4/dsh-opencode-zen-0.2.4.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.5/dsh-opencode-zen-0.2.5.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 

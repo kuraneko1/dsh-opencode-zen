@@ -139,10 +139,21 @@ async function waitForRelay(baseURL, timeoutMs = 60_000) {
   fail(`relay did not become healthy within ${timeoutMs}ms (${last}); check: systemctl --user status ${UNIT_NAME}`);
 }
 
+// The upstream gate only accepts the real OpenCode client, so its binary is mandatory here.
+// OPENCODE_BIN lets a caller name one that is not on PATH; the unit then carries its directory.
+async function opencodeBinary(which) {
+  const explicit = process.env.OPENCODE_BIN;
+  if (explicit === undefined || explicit === '') return which('opencode');
+  if (!explicit.startsWith('/')) fail('OPENCODE_BIN must be an absolute path');
+  const stat = await lstat(explicit).catch(() => undefined);
+  if (!stat?.isFile() || (stat.mode & 0o111) === 0) fail(`OPENCODE_BIN is not an executable file: ${explicit}`);
+  return explicit;
+}
+
 async function startRelayService({ baseURL, profileDir, unitDir, run, which }) {
   if (process.platform !== 'linux') fail('--service installs a Linux systemd user unit; start the relay manually on other systems.');
-  const opencode = await which('opencode');
-  if (!opencode) fail('opencode was not found on PATH; install it before using --service.');
+  const opencode = await opencodeBinary(which);
+  if (!opencode) fail('opencode was not found on PATH; install OpenCode or set OPENCODE_BIN to its binary.');
   if (!(await which('systemctl'))) fail('systemctl was not found on PATH; start the relay manually instead of --service.');
   const installed = join(profileDir, 'node_modules', PACKAGE, 'supervisor.mjs');
   const script = await lstat(installed).then(stat => stat.isFile() ? installed : join(here, 'supervisor.mjs')).catch(() => join(here, 'supervisor.mjs'));

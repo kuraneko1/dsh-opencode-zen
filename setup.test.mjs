@@ -150,3 +150,54 @@ test('--service writes the unit, starts it through systemctl and then registers 
   assert.deepEqual(registered.at(-1).config, { proxyURL: baseURL, apiKeyEnv: 'FREEMODELS_API_KEY' });
   assert.equal(rows(await readFile(join(f.home, '.credentials.yaml'), 'utf8')).refs.FREEMODELS_API_KEY, key);
 });
+
+test('OPENCODE_BIN names a binary that is not on PATH, and the unit carries its directory', async t => {
+  const f = await fixture(t);
+  const previous = process.env.OPENCODE_BIN;
+  const binDir = join(f.home, 'vendor');
+  await mkdir(binDir, { recursive: true });
+  const binary = join(binDir, 'opencode');
+  await writeFile(binary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const calls = [];
+  const server = createServer((req, res) => {
+    if (req.url === '/health') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ upstreams: { opencode: true, bridge: true } }));
+    if (req.url === '/v1/models') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ data: [model] })); }
+    res.writeHead(404).end();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+  const unitDir = join(f.home, 'systemd');
+  try {
+    process.env.OPENCODE_BIN = binary;
+    // `which` deliberately finds no opencode, proving the explicit binary is what is used.
+    const result = await integrate({ ...f.options, install: true, service: true, unitDir, fetchImpl: fetch,
+      baseURL: `http://127.0.0.1:${server.address().port}/v1`,
+      which: async name => (name === 'opencode' ? null : `/usr/bin/${name}`),
+      run: async (command, args) => { calls.push([command, ...args].join(' ')); return { code: 0, output: '' }; } });
+    assert.equal(result.relay, 'systemd:dsh-opencode-zen.service');
+    const unit = await readFile(join(unitDir, 'dsh-opencode-zen.service'), 'utf8');
+    assert.ok(unit.includes(`Environment="PATH=${binDir}:`), unit.slice(0, 400));
+    assert.deepEqual(calls, ['systemctl --user daemon-reload', 'systemctl --user enable --now dsh-opencode-zen.service']);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_BIN; else process.env.OPENCODE_BIN = previous;
+  }
+});
+
+test('a relative or non-executable OPENCODE_BIN is refused', async t => {
+  const f = await fixture(t);
+  const previous = process.env.OPENCODE_BIN;
+  const notExecutable = join(f.home, 'opencode');
+  await writeFile(notExecutable, 'x', { mode: 0o644 });
+  try {
+    for (const value of ['opencode', notExecutable]) {
+      process.env.OPENCODE_BIN = value;
+      await assert.rejects(integrate({ ...f.options, install: true, service: true, unitDir: join(f.home, 'systemd'),
+        which: async name => `/usr/bin/${name}` }), /OPENCODE_BIN/);
+    }
+    delete process.env.OPENCODE_BIN;
+    await assert.rejects(integrate({ ...f.options, install: true, service: true, unitDir: join(f.home, 'systemd'),
+      which: async name => (name === 'opencode' ? null : `/usr/bin/${name}`) }), /install OpenCode or set OPENCODE_BIN/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_BIN; else process.env.OPENCODE_BIN = previous;
+  }
+});

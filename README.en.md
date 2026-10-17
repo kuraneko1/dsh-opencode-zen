@@ -5,6 +5,11 @@
 A DSH plugin for **OpenCode Zen free models only**. Works with plain `dsh` and through RDSH.
 Real tools run only in the calling harness; the upstream OpenCode client only relays.
 
+## Requirements
+
+Linux, Node 22.19+, and the **`opencode` command** (on `PATH`, or `OPENCODE_BIN=/path/to/opencode`).
+Zen's free tier only accepts requests from the real OpenCode client, so it is the upstream client.
+
 ## Install
 
 ```bash
@@ -22,7 +27,7 @@ By default it installs into the `web` profile and runs the relay as a systemd us
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.4/dsh-opencode-zen-0.2.4.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.5/dsh-opencode-zen-0.2.5.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -46,7 +51,7 @@ Then pick **OpenCode Zen (free)** in the model selector. Your default model is n
 - **Other install routes**: the Web **Plugins** page or the agent's `plugin_manager` tool can install the
   release tarball URL directly, with a build-approval prompt and rollback.
 - **Compatibility**: `engines.dsh` and the enforced peers declare `^0.2.0-rc.2`. A different prerelease needs an
-  exact exemption — `dsh plugin --profile web allow-version dsh-opencode-zen@0.2.4 --dsh-version <runtime> --accept-risk`.
+  exact exemption — `dsh plugin --profile web allow-version dsh-opencode-zen@<version> --dsh-version <runtime> --accept-risk`.
 - **State/ports**: `$FREEMODELS_RUNTIME_DIR` or `~/.local/state/dsh-opencode-zen`; `OC_PORT`/`PROXY_PORT`
   (defaults 4096/8099). Change the plugin row's `proxyURL` and setup's `--base-url` to match.
 - **Extending limits**: `FREEMODELS_ZEN_LIMITS='{"<model-id>":{"context":N,"output":N}}'` on the relay.

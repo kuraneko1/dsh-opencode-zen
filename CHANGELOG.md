@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+- `OPENCODE_BIN` now works for the systemd service path too: the unit carries that binary's directory, and a
+  relative or non-executable value is refused. `install.sh` accepts it as well and says so when OpenCode is missing.
+- Both READMEs state the OpenCode requirement up front, since Zen's free tier only accepts that client.
+
 ## 0.2.4
 
 - `README.md` is Japanese now (the default page); English moved to `README.en.md`. Both are short, and the
