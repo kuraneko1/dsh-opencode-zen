@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.16) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.17) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.16}"
+VERSION="${VERSION:-0.2.17}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -67,7 +67,8 @@ if (reason === undefined) process.exit(1);
 manifest[field][name] = url;
 // The backup name is guessable, so create it exclusively: a pre-created symlink there must make
 // this fail rather than redirect the copy into somebody else's file.
-const backup = `${file}.bak-opencode-zen-${Date.now()}`;
+// Unpredictable on purpose: a time-only name could be pre-created as a symlink by a local process.
+const backup = `${file}.bak-opencode-zen-${Date.now()}-${require('node:crypto').randomBytes(4).toString('hex')}`;
 try {
   const fd = fs.openSync(backup, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
   try { fs.writeFileSync(fd, raw); } finally { fs.closeSync(fd); }

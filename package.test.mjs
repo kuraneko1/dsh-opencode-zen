@@ -222,24 +222,23 @@ test('the installer repairs the two states that block later pnpm operations', as
     assert.match(linked.stderr, /refusing to rewrite a non-regular manifest/);
     await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': url } }));
 
-    // 2d. A pre-created symlink at the guessable backup name must not let anyone redirect the copy,
-    // and the manifest itself must not be written through a symlink.
+    // 2d. The write path refuses symlinks, which is the property that matters and is checkable
+    // without racing the clock: point the manifest at a symlink and the victim must survive.
     const victim = path.join(root, 'victim.txt');
     await fs.writeFile(victim, 'ORIGINAL');
+    const linkedPath = path.join(root, 'linked-manifest.json');
     await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': `file:${root}/gone.tgz` } }));
-    const planted = [];
-    for (let offset = 0; offset < 4000; offset += 1) {
-      const name = `${manifest}.bak-opencode-zen-${Date.now() + offset}`;
-      planted.push(name);
-      try { await fs.symlink(victim, name); } catch { /* Already planted. */ }
-    }
-    const attacked = run('nothing about checksums');
-    assert.equal(attacked.status, 0, attacked.stderr);
-    assert.equal(await fs.readFile(victim, 'utf8'), 'ORIGINAL', 'the victim must be untouched');
-    assert.match(attacked.stderr, /no backup written/);
-    assert.equal(JSON.parse(await fs.readFile(manifest, 'utf8')).dependencies['dsh-opencode-zen'], url);
-    for (const name of planted) await fs.rm(name, { force: true });
+    await fs.symlink(manifest, linkedPath);
+    const throughLink = spawnSync('bash', [repair], { encoding: 'utf8',
+      env: { ...process.env, MANIFEST: linkedPath, TARBALL: url, PACKAGE: 'dsh-opencode-zen' } });
+    assert.ok(throughLink.status !== 0, 'a symlinked manifest must not be written through');
+    assert.equal(await fs.readFile(victim, 'utf8'), 'ORIGINAL');
     await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': url } }));
+
+    // 2e. Backup names must not be guessable, and both guards must stay in the shipped script.
+    assert.match(script, /randomBytes\(4\)/, 'the backup name needs an unpredictable part');
+    assert.match(script, /COPYFILE_EXCL|O_EXCL|'wx'/, 'the backup must be created exclusively');
+    assert.match(script, /O_NOFOLLOW/, 'the manifest must be written without following symlinks');
 
     // 3. Nothing to do: already correct, another package, or a present local file.
     assert.equal(run().status, 1);

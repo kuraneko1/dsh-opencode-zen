@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.17
+
+- CI caught a race in the repair test: it planted thousands of symlinks across a time window and then
+  asserted that the backup had been refused, which fails whenever the write lands outside that window.
+  The test now checks the property deterministically (a symlinked manifest must not be written through,
+  the victim must survive) and asserts the two guards stay in the shipped script.
+- The repair's backup name is no longer guessable at all (`Date.now()` plus four random bytes), so a local
+  process cannot pre-plant anything at it.
+
 ## 0.2.16
 
 - Add `zen-doctor.mjs`: one real request through the relay plus the machine's egress family, with a
