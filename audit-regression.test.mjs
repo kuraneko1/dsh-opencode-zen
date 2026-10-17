@@ -172,7 +172,7 @@ test('reusable proxy never reads credential files or forwards external provider 
   assert.doesNotMatch(JSON.stringify(h.state.calls), /synthetic-unused-/);
 });
 
-test('text-only and tool-history Chat requests BOTH use deny-all Zen bridge, preserve messages and caller options', async t => {
+test('text-only and tool-history Chat requests BOTH use the Zen bridge, preserve messages and caller options', async t => {
   const h = await harness(t);
   const inputs = [{ ...body(), store: false }, { ...body('zen/big-pickle'), stream: true, temperature: 0.2, reasoning_effort: 'high',
     tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object', properties: {} } } }],
@@ -183,7 +183,22 @@ test('text-only and tool-history Chat requests BOTH use deny-all Zen bridge, pre
     const response = await h.request(input);
     assert.equal(response.status, 200); await response.arrayBuffer();
   }
-  assert.deepEqual(h.state.payloads, inputs);
+  // Every caller field is relayed unchanged; a tool-less request additionally carries the one
+  // realistic tool the gate requires (and a matching tool_choice), which the harness then strips.
+  assert.equal(h.state.payloads.length, inputs.length);
+  for (const [index, input] of inputs.entries()) {
+    const { tools, tool_choice, ...rest } = h.state.payloads[index];
+    const { tools: inputTools, tool_choice: inputChoice, ...inputRest } = input;
+    assert.deepEqual(rest, inputRest, `caller fields must survive for input ${index}`);
+    if (index === 0) {
+      assert.equal(tools.length, 1);
+      assert.equal(tools[0].function.name, 'read');
+      assert.equal(tool_choice, 'none');
+    } else {
+      assert.deepEqual(tools, inputTools, 'caller tools must be relayed exactly');
+      assert.deepEqual(tool_choice, inputChoice);
+    }
+  }
   for (const call of h.state.calls.filter(c => c.path.endsWith('/message'))) {
     assert.equal(call.payload.agent, 'dsh-bridge');
     assert.equal(call.payload.model.providerID, 'opencode');

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.21
+
+The standalone relay got tool-less support in its 0.1.1; the DSH plugin never did, because a DSH agent
+always sends tools. Measured today: a tool-less request answers `403 FreeTierError` while the same
+request with one tool answers `200`, so an internal call (summarisation, title generation) or any
+caller without tools would have failed.
+
+- A tool-less request now carries one minimal, realistic tool definition upstream together with
+  `tool_choice: "none"`.
+- Any tool call the model returns is stripped before the caller sees it, from the collected JSON reply
+  and from the SSE reply (a streaming caller gets the text as a single SSE frame).
+- Callers that do send tools keep them byte for byte, and the provider's own errors still pass through.
+
 ## 0.2.20
 
 **An upgrade did not take effect.** Found because `/health` still lacked 0.2.19's fields after 0.2.19

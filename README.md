@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.20/dsh-opencode-zen-0.2.20.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.21/dsh-opencode-zen-0.2.21.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -112,8 +112,15 @@ node zen-doctor.mjs
    systemctl --user restart dsh-opencode-zen.service
    ```
    専用OpenCodeは起動時に経路を決めるため、**後からIPv6が生えても自分では乗り換えません**（これが「素のCLIは通るのにリレーだけ403」の正体）。
-   0.2.20 以降は、拒否が続いたうえでIPv6が新たに使えるようになったことを検知すると、**自動で専用OpenCodeを再起動**します。
+   0.2.21 以降は、拒否が続いたうえでIPv6が新たに使えるようになったことを検知すると、**自動で専用OpenCodeを再起動**します。
 4. 状態は `GET /health` で見られます: `egress.ipv6`（この機械がグローバルIPv6を持つか）と `refusals.count`（上流に403で拒否された累計）。
+
+### ツールを付けないリクエストも通ります
+
+上流のゲートは**ツールを持たないリクエストを拒否**します（実測: ツール無しは403、同じ内容でツール1個付きは200）。
+DSHの通常のエージェント呼び出しは必ずツールを伴うので問題になりませんが、要約・タイトル生成のような内部呼び出しに備えて、
+ツール無しのときは**最小のツール定義を1つだけ添えて**送り、返ってきたツール呼び出しは**呼び出し元に返さず落とします**
+（呼び出し元はツールを要求していないため）。
 
 ## 知っておくこと
 

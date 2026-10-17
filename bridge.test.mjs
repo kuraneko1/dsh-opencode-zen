@@ -403,7 +403,7 @@ test('nonstream incomplete or malformed SSE is 502, never a successful partial c
   }
 });
 
-test('text-only relay preserves caller tools exactly without inventing a schema', async t => {
+test('a tool-less request gets one realistic tool, and no caller options leak', async t => {
   const h = await harness(t, (_req, res) => sendFragmentedSSE(res,
     'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"plain"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));
   const original = { model: 'zen/text', messages: [{ role: 'user', content: 'hello' }] };
@@ -415,12 +415,39 @@ test('text-only relay preserves caller tools exactly without inventing a schema'
   assert.equal(upstream.model, 'upstream/resolved-model');
   assert.equal(upstream.stream, true);
   assert.deepEqual(upstream.stream_options, { include_usage: true });
-  assert.equal(Object.hasOwn(upstream, 'tool_choice'), false);
-  assert.equal(Object.hasOwn(upstream, 'tools'), false);
+  // The gate refuses a request with no tools at all, so one realistic tool goes upstream; the
+  // caller asked for none, so tool_choice forbids calls and any call is stripped below.
+  assert.equal(upstream.tools.length, 1);
+  assert.equal(upstream.tools[0].function.name, 'read');
+  assert.deepEqual(upstream.tools[0].function.parameters.required, ['file_path']);
+  assert.equal(upstream.tool_choice, 'none');
   for (const key of ['max_tokens', 'max_completion_tokens', 'reasoning_effort', 'temperature', 'parallel_tool_calls']) {
     assert.equal(Object.hasOwn(upstream, key), false, `SDK default ${key} leaked into text-only request`);
   }
   assert.equal(h.state.upstream[0].headers[MARKER], undefined);
+});
+
+test('a tool call produced for a tool-less caller is stripped from JSON and SSE replies', async t => {
+  const call = 'data: {"choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read","arguments":"{\\"file_path\\":\\"/etc/hostname\\"}"}}]},"finish_reason":"tool_calls"}]}\n\ndata: [DONE]\n\n';
+  for (const stream of [false, true]) {
+    await t.test(stream ? 'streaming caller' : 'JSON caller', async subtest => {
+      const h = await harness(subtest, (_req, res) => sendFragmentedSSE(res, call));
+      const response = await complete(h, { model: 'zen/text', stream, messages: [{ role: 'user', content: 'hi' }] });
+      const text = await response.text();
+      assert.equal(response.status, 200);
+      assert.doesNotMatch(text, /tool_calls|call_1|hostname/, 'the synthetic tool call must not reach the caller');
+      if (stream) {
+        assert.match(text, /^data: /);
+        assert.match(text, /data: \[DONE\]/);
+      } else {
+        const body = JSON.parse(text);
+        assert.equal(body.choices[0].message.tool_calls, undefined);
+        assert.equal(body.choices[0].finish_reason, 'stop');
+      }
+      await assertFinished(h);
+      assert.equal(h.state.upstream[0].body.tools.length, 1, 'the gate shape was sent');
+    });
+  }
 });
 
 test('upstream 502 status and error body are preserved instead of converted to dummy success', async t => {
@@ -576,7 +603,7 @@ test('streaming HTTP relay terminates rather than succeeding on normal incomplet
   assert.ok(h.state.ocCalls.some(call => call.path.endsWith('/abort')));
 });
 
-test('upstream 403 is returned unchanged without injecting tools and Retry-After survives callbacks', async t => {
+test('upstream 403 is returned unchanged and Retry-After survives callbacks', async t => {
   for (const status of [403, 429, 503]) {
     await t.test(String(status), async subtest => {
       const bytes = '{"error":{"message":"provider policy"}}';
@@ -589,7 +616,7 @@ test('upstream 403 is returned unchanged without injecting tools and Retry-After
       assert.equal(response.headers.get('retry-after'), '30');
       assert.equal(await response.text(), bytes);
       await assertFinished(h);
-      assert.equal(Object.hasOwn(h.state.upstream[0].body, 'tools'), false);
+      assert.equal(h.state.upstream[0].body.tools.length, 1, 'the provider refusal is not caused by a missing manifest');
     });
   }
 });

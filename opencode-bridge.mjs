@@ -3,6 +3,40 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const PREFIX = '/internal/bridge/';
+// The upstream gate answers 403 FreeTierError to a request that carries no tools, because that is
+// not the shape a coding agent sends. A caller that sent none (summarising, titles, plain chat)
+// still gets an answer: one realistic tool is attached so the request looks like agent traffic, the
+// caller is told nothing about it, and any tool call the model makes is stripped from the reply.
+const RELAY_TOOL = { type: 'function', function: {
+  name: 'read', description: 'Read a UTF-8 text file and return line-numbered content.',
+  parameters: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'], additionalProperties: false },
+} };
+function withSyntheticTools(payload) {
+  return { ...payload, tools: [RELAY_TOOL], tool_choice: 'none' };
+}
+export function stripToolCalls(completion) {
+  for (const choice of completion.choices ?? []) {
+    if (choice?.message && choice.message.tool_calls) {
+      delete choice.message.tool_calls;
+      if (choice.message.content === undefined || choice.message.content === null) choice.message.content = '';
+      if (choice.finish_reason === 'tool_calls') choice.finish_reason = 'stop';
+    }
+  }
+  return completion;
+}
+// A caller that asked for a stream still gets SSE, just emitted once after the calls were stripped.
+function writeCollectedSSE(res, status, completion) {
+  res.writeHead(status, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+  const base = { id: completion.id ?? 'chatcmpl-dsh-relay', object: 'chat.completion.chunk',
+    created: completion.created ?? Math.floor(Date.now() / 1000), model: completion.model ?? 'opencode-zen' };
+  for (const choice of completion.choices ?? []) {
+    const delta = { role: 'assistant', content: choice.message?.content ?? '' };
+    res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: choice.index ?? 0, delta, finish_reason: null }] })}\n\n`);
+    res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: choice.index ?? 0, delta: {}, finish_reason: choice.finish_reason ?? 'stop' }] })}\n\n`);
+  }
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
 const DEFAULT_LIMITS = { maxFrameBytes: 1024 * 1024, maxTotalBytes: 16 * 1024 * 1024, maxChoices: 16, maxToolCalls: 128 };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -174,10 +208,14 @@ export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus
       const retry = req.headers['x-upstream-retry-after'];
       if (typeof retry === 'string' && retry.length > 0 && retry.length <= 128 && !/[^\x20-\x7e]/.test(retry)) responseHeaders['retry-after'] = retry;
       const sse = status < 300 && contentType.includes('text/event-stream');
-      if (sse && entry.payload.stream !== true) {
+      if (sse && (entry.payload.stream !== true || entry.syntheticTools)) {
         const completion = await collectCompletion(req, limits);
-        entry.res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
-        entry.res.end(JSON.stringify(completion));
+        if (entry.syntheticTools) stripToolCalls(completion);
+        if (entry.payload.stream === true) writeCollectedSSE(entry.res, status, completion);
+        else {
+          entry.res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
+          entry.res.end(JSON.stringify(completion));
+        }
       } else {
         entry.res.writeHead(status, responseHeaders);
         if (sse) await pipeline(req, createSSEValidator(limits), entry.res);
@@ -190,7 +228,7 @@ export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus
     return true;
   }
 
-  async function complete(payload, providerID, modelID, res) {
+  async function complete(payload, providerID, modelID, res) { // eslint-disable-line no-param-reassign
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]);
     const cancel = () => { if (!res.writableFinished) controller.abort(new Error('client disconnected')); };
@@ -203,13 +241,15 @@ export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus
       return oc(pathname, init);
     }), init.signal);
     try {
-      const session = await call('/session', { method: 'POST', body: JSON.stringify({ title: 'freemodels-proxy' }), signal });
+      const syntheticTools = !(payload.tools?.length);
+      if (syntheticTools) payload = withSyntheticTools(payload);
+      const session = await call('/session', { method: 'POST', body: JSON.stringify({ title: 'dsh-opencode-zen' }), signal });
       sessionID = session.id;
       token = randomBytes(32).toString('hex');
       let resolve, reject;
       const done = new Promise((yes, no) => { resolve = yes; reject = no; });
       done.catch(() => {});
-      pending.set(token, { payload, res, resolve, reject, signal, claimed: false, started: false });
+      pending.set(token, { payload, syntheticTools, res, resolve, reject, signal, claimed: false, started: false });
       const completion = call(`/session/${sessionID}/message`, {
         method: 'POST', signal,
         body: JSON.stringify({

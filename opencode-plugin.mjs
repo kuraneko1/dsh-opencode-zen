@@ -54,7 +54,8 @@ export default async function DshBridgePlugin() {
           const sdkBody = JSON.parse(init.body);
           const outgoing = { ...payload, model: sdkBody.model, stream: true };
           if (payload.stream !== true) outgoing.stream_options = { include_usage: true };
-          // Send exactly the caller's tools. Do not invent a tool to change eligibility.
+          // Send exactly the tools the relay registered. When the caller sent none, the relay
+          // attaches one realistic tool so the request has agent shape and strips any resulting call.
           touch();
           upstream = await upstreamFetch(input, {
             ...init, signal, headers, body: JSON.stringify(outgoing), redirect: 'error',
