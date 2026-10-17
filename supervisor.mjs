@@ -28,6 +28,22 @@ function privateFile(file, content, flags = 'w') {
 function secret(name) {
   return stateToken(runtime, name);
 }
+// The child's environment is the object we passed, unless something on PATH is a wrapper script:
+// a shell launcher adds its own variables (PWD/SHLVL and whatever else it exports) before exec.
+// Print the names only, never values, so an unexpected host variable is visible instead of silent.
+const SHELL_INJECTED = new Set(['PWD', 'SHLVL', 'OLDPWD', '_']);
+function reportInheritedEnvironment(pid, expected) {
+  if (!pid) return;
+  let extras;
+  try {
+    extras = fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0')
+      .map(entry => entry.slice(0, entry.indexOf('=')))
+      .filter(name => name.length > 0 && !expected.has(name) && !SHELL_INJECTED.has(name));
+  } catch {
+    return; // No /proc (non-Linux) or the child already exited: nothing to report.
+  }
+  if (extras.length > 0) console.warn(`warning: the OpenCode launcher added environment variable(s) ${[...new Set(extras)].sort().join(', ')}; check for a wrapper script on PATH (values are not shown)`);
+}
 function removeExact(file) {
   // Only these owned files can ever be removed; no recursive credential deletion.
   const allowed = [stateFile, path.join(runtime, 'oc-data/opencode/auth.json')];
@@ -112,15 +128,15 @@ async function run() {
       share: 'disabled', enabled_providers: ['opencode'], compaction: { auto: false, prune: false },
       // Without this, OpenCode truncates long input at the published 200k client limit.
       provider: { opencode: { models: opencodeModelOverrides() } } };
-    start(process.env.OPENCODE_BIN || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], {
-      ...common, HOME: path.join(runtime, 'oc-home'),
+    const opencodeEnv = { ...common, HOME: path.join(runtime, 'oc-home'),
       OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode',
       XDG_DATA_HOME: path.join(runtime, 'oc-data'), XDG_CONFIG_HOME: path.join(runtime, 'oc-config'),
       XDG_CACHE_HOME: path.join(runtime, 'oc-cache'), XDG_STATE_HOME: path.join(runtime, 'oc-state'),
       OPENCODE_CONFIG_DIR: path.join(runtime, 'oc-config/opencode'), OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
       OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_EXPERIMENTAL_NATIVE_LLM: 'false',
       FREEMODELS_BRIDGE_URL: `http://127.0.0.1:${proxyPort}`,
-    }, path.join(runtime, 'oc-workdir'));
+    };
+    const opencode = start(process.env.OPENCODE_BIN || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
     const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
     let ready = false;
     for (let i = 0; i < 120 && !stopping; i++) {
@@ -129,6 +145,8 @@ async function run() {
       await delay(500);
     }
     if (!ready) throw new Error('dedicated OpenCode did not become ready');
+    // Read this only once the client is up: a shell wrapper is still running when spawn returns.
+    reportInheritedEnvironment(opencode.pid, new Set(Object.keys(opencodeEnv)));
     const resolved = await fetch(`http://127.0.0.1:${ocPort}/config`, { headers: { authorization }, signal: AbortSignal.timeout(5000), redirect: 'error' }).then(r => r.json());
     if (resolved.plugin?.length !== 1 || resolved.plugin[0] !== config.plugin[0] || resolved.permission?.['*'] !== 'deny'
       || resolved.agent?.['dsh-bridge']?.permission?.['*'] !== 'deny') {

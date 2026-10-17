@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.8
+
+- The READMEs now lead with the mandatory OpenCode requirement and a port table, and embed a simple layout PNG
+  (`flow.png`) so the roles of 8099 (the only endpoint your app uses) and 4096 (internal, started by the relay)
+  are obvious at a glance.
+- Review finding: a launcher wrapper on `PATH` can export variables the allowlist never passed (observed live:
+  `/home/ryu/.local/bin/opencode` is such a wrapper). The supervisor now reports the unexpected variable
+  **names** once the client is ready, never their values.
+- Review finding: `OPENCODE_BIN` rejected symlinks, which is how nvm and npm install the command. It now
+  follows symlinks while still refusing relative, missing or non-executable targets.
+- `install.sh` refuses to rewrite a symlinked manifest, and `AUDIT.md` documents the environment and installer
+  limits alongside the live checks (401/403/404 probes, empty auth, clean journal, 0700/0600 state).
+
 ## 0.2.7
 
 - The manager's operation log holds only the command line, so the repair now takes its evidence from the

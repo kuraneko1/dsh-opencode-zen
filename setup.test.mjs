@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm, symlink as symlinkFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
@@ -106,15 +106,20 @@ test('setup uses a real authenticated HTTP request without DSH runtime path assu
   assert.equal(result.models, 1);
 });
 test('generated systemd unit is absolute, portable and hardened', () => {
-  const unit = serviceUnit({ node: '/usr/bin/node', script: '/opt/dsh zen/supervisor.mjs', opencodeDir: '/opt/bin' });
+  const unit = serviceUnit({ node: '/usr/bin/node', script: '/opt/dsh zen/supervisor.mjs', opencodeDir: '/opt/bin', opencodeBin: '/opt/bin/opencode' });
   assert.match(unit, /^ExecStart="\/usr\/bin\/node" "\/opt\/dsh zen\/supervisor\.mjs" run$/m);
   assert.match(unit, /^Environment="PATH=\/opt\/bin:\/usr\/bin:/m);
+  // The supervisor spawns by name, so the unit must name the binary it verified.
+  assert.match(unit, /^Environment="OPENCODE_BIN=\/opt\/bin\/opencode"$/m);
   for (const line of ['Type=simple', 'Restart=on-failure', 'UMask=0077', 'NoNewPrivileges=yes', 'PrivateTmp=yes', 'WorkingDirectory=/tmp', 'WantedBy=default.target']) {
     assert.ok(unit.includes(line), line);
   }
   assert.doesNotMatch(unit, /\/home\/ryu/);
-  for (const bad of [{ node: 'node', script: '/s', opencodeDir: '/b' }, { node: '/n', script: 'relative', opencodeDir: '/b' },
-    { node: '/n', script: '/s', opencodeDir: '/b"\nExecStart=/bin/sh' }]) assert.throws(() => serviceUnit(bad));
+  for (const bad of [{ node: 'node', script: '/s', opencodeDir: '/b', opencodeBin: '/b/opencode' },
+    { node: '/n', script: 'relative', opencodeDir: '/b', opencodeBin: '/b/opencode' },
+    { node: '/n', script: '/s', opencodeDir: '/b', opencodeBin: '/b/opencode' + '"\nExecStart=/bin/sh' },
+    // % introduces systemd specifiers, so a path containing one is refused too.
+    { node: '/n', script: '/s', opencodeDir: '/b', opencodeBin: '/b/%i' }]) assert.throws(() => serviceUnit(bad), /cannot generate a systemd unit/);
 });
 test('--service without --install and missing opencode/systemctl fail before any write', async t => {
   const f = await fixture(t);
@@ -157,7 +162,9 @@ test('OPENCODE_BIN names a binary that is not on PATH, and the unit carries its 
   const binDir = join(f.home, 'vendor');
   await mkdir(binDir, { recursive: true });
   const binary = join(binDir, 'opencode');
-  await writeFile(binary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  // nvm and npm install the command as a symlink; that normal shape must be accepted.
+  await writeFile(join(binDir, 'opencode-real'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await symlinkFile(join(binDir, 'opencode-real'), binary);
   const calls = [];
   const server = createServer((req, res) => {
     if (req.url === '/health') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ upstreams: { opencode: true, bridge: true } }));
@@ -199,5 +206,24 @@ test('a relative or non-executable OPENCODE_BIN is refused', async t => {
       which: async name => (name === 'opencode' ? null : `/usr/bin/${name}`) }), /install OpenCode or set OPENCODE_BIN/);
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_BIN; else process.env.OPENCODE_BIN = previous;
+  }
+});
+
+test('a symlinked opencode on PATH is found, as nvm and npm install it', async t => {
+  const f = await fixture(t);
+  const dir = join(f.home, 'only-bin');
+  await mkdir(dir, { recursive: true });
+  const real = join(f.home, 'opencode-real');
+  await writeFile(real, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await symlinkFile(real, join(dir, 'opencode'));
+  const previous = process.env.PATH;
+  process.env.PATH = dir;
+  try {
+    // With only a symlinked opencode visible, the failure must be about systemctl, which proves
+    // the symlink itself was accepted as the OpenCode binary.
+    await assert.rejects(integrate({ ...f.options, install: true, service: true, unitDir: join(f.home, 'systemd') }),
+      /systemctl was not found/);
+  } finally {
+    process.env.PATH = previous;
   }
 });

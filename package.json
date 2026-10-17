@@ -1,6 +1,6 @@
 {
   "name": "dsh-opencode-zen",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "OpenCode Zen free models as a native DSH/RDSH provider plugin with an isolated local relay",
   "type": "module",
   "license": "MIT",
@@ -47,7 +47,8 @@
     "locale/*.json",
     "icon.svg",
     "README.en.md",
-    "install.sh"
+    "install.sh",
+    "flow.png"
   ],
   "engines": {
     "node": ">=22.19.0",

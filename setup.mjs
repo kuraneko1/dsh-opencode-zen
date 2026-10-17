@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Setup CLI for dsh-opencode-zen. The plugin needs only DSH; dsh and rdsh are both supported launchers.
-import { readFile, lstat, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, lstat, stat, writeFile, mkdir } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -71,9 +71,9 @@ export function mergeCredentials(text, key) {
 }
 
 /** Deterministic unit text; only absolute, quote-safe paths are accepted. */
-export function serviceUnit({ node, script, opencodeDir }) {
-  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir]]) {
-    if (typeof value !== 'string' || !value.startsWith('/') || /["\\\r\n]/.test(value)) fail(`cannot generate a systemd unit from ${label}`);
+export function serviceUnit({ node, script, opencodeDir, opencodeBin }) {
+  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir], ['opencodeBin', opencodeBin]]) {
+    if (typeof value !== 'string' || !value.startsWith('/') || /["\\\r\n%]/.test(value)) fail(`cannot generate a systemd unit from ${label}`);
   }
   const path = [...new Set([opencodeDir, dirname(node), '/usr/local/bin', '/usr/bin', '/bin'])].join(':');
   return `[Unit]
@@ -90,6 +90,7 @@ UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes
 Environment="PATH=${path}"
+Environment="OPENCODE_BIN=${opencodeBin}"
 WorkingDirectory=/tmp
 ExecStart="${node}" "${script}" run
 TimeoutStartSec=180
@@ -114,7 +115,8 @@ function runProcess(command, args, env) {
 async function findExecutable(name) {
   for (const dir of String(process.env.PATH || '').split(':').filter(Boolean)) {
     const candidate = join(dir, name);
-    try { const stat = await lstat(candidate); if (stat.isFile() && (stat.mode & 0o111)) return candidate; } catch { /* keep looking */ }
+    // Follow symlinks: nvm and npm install commands that way, so lstat would miss them.
+    try { const target = await stat(candidate); if (target.isFile() && (target.mode & 0o111)) return candidate; } catch { /* keep looking */ }
   }
   return null;
 }
@@ -145,8 +147,9 @@ async function opencodeBinary(which) {
   const explicit = process.env.OPENCODE_BIN;
   if (explicit === undefined || explicit === '') return which('opencode');
   if (!explicit.startsWith('/')) fail('OPENCODE_BIN must be an absolute path');
-  const stat = await lstat(explicit).catch(() => undefined);
-  if (!stat?.isFile() || (stat.mode & 0o111) === 0) fail(`OPENCODE_BIN is not an executable file: ${explicit}`);
+  // Follow symlinks: nvm and npm install the command as one, and that is the normal shape.
+  const target = await stat(explicit).catch(() => undefined);
+  if (!target?.isFile() || (target.mode & 0o111) === 0) fail(`OPENCODE_BIN is not an executable file: ${explicit}`);
   return explicit;
 }
 
@@ -157,7 +160,7 @@ async function startRelayService({ baseURL, profileDir, unitDir, run, which }) {
   if (!(await which('systemctl'))) fail('systemctl was not found on PATH; start the relay manually instead of --service.');
   const installed = join(profileDir, 'node_modules', PACKAGE, 'supervisor.mjs');
   const script = await lstat(installed).then(stat => stat.isFile() ? installed : join(here, 'supervisor.mjs')).catch(() => join(here, 'supervisor.mjs'));
-  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode) });
+  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode), opencodeBin: opencode });
   const file = join(unitDir, UNIT_NAME);
   await mkdir(unitDir, { recursive: true, mode: 0o755 });
   const before = await readFile(file, 'utf8').catch(() => null);

@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.7) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.8) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.7}"
+VERSION="${VERSION:-0.2.8}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -24,7 +24,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const [file, url, name] = process.argv.slice(2);
 const logRoot = path.join(path.dirname(file), '.plugin-manager', 'logs');
-const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+// Write only through a regular file: the rest of this project refuses symlinked configuration too.
+const info = fs.lstatSync(file);
+if (info.isSymbolicLink() || !info.isFile()) {
+  console.error(`install: refusing to rewrite a non-regular manifest: ${file}`);
+  process.exit(1);
+}
+const raw = fs.readFileSync(file, 'utf8');
+const manifest = JSON.parse(raw);
 const field = ['dependencies', 'devDependencies'].find((key) => typeof manifest[key]?.[name] === 'string');
 if (field === undefined) process.exit(1);
 const current = manifest[field][name];
@@ -55,8 +62,18 @@ const integrityMismatch = () => {
 const reason = localMissing() ? 'the local tarball is gone' : integrityMismatch() ? 'the published tarball no longer matches the locked integrity' : undefined;
 if (reason === undefined) process.exit(1);
 manifest[field][name] = url;
-fs.copyFileSync(file, `${file}.bak-opencode-zen-${Date.now()}`);
-fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+// The backup name is guessable, so create it exclusively: a pre-created symlink there must make
+// this fail rather than redirect the copy into somebody else's file.
+const backup = `${file}.bak-opencode-zen-${Date.now()}`;
+try {
+  const fd = fs.openSync(backup, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+  try { fs.writeFileSync(fd, raw); } finally { fs.closeSync(fd); }
+} catch (error) {
+  console.error(`install: no backup written (${error.code}); continuing`);
+}
+// And never follow a symlink for the manifest itself, even if it was swapped in after the check.
+const out = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW);
+try { fs.writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`); } finally { fs.closeSync(out); }
 console.error(`install: rewrote ${name} to ${url} because ${reason}`);
 NODE
 }

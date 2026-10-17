@@ -133,7 +133,13 @@ test('the default README is Japanese and the one-command installer is shippable'
   const readme = await fs.readFile(path.join(here, 'README.md'), 'utf8');
   assert.match(readme, /[\u3040-\u30ff\u4e00-\u9faf]/, 'README.md is the default page and must be Japanese');
   assert.match(readme, /install\.sh/, 'the default README must show the one-command install');
-  for (const name of ['README.en.md', 'install.sh']) assert.ok(metadata.files.includes(name), name);
+  for (const name of ['README.en.md', 'install.sh', 'flow.png']) assert.ok(metadata.files.includes(name), name);
+  const english = await fs.readFile(path.join(here, 'README.en.md'), 'utf8');
+  for (const text of [readme, english]) {
+    assert.match(text, /flow\.png/, 'both READMEs must embed the layout diagram');
+    assert.match(text, /opencode/i, 'both READMEs must state the OpenCode requirement');
+    assert.match(text, /8099/); assert.match(text, /4096/);
+  }
   // Docs must never point at an older tarball than the package itself.
   for (const name of ['README.md', 'README.en.md', 'install.sh']) {
     const text = await fs.readFile(path.join(here, name), 'utf8');
@@ -192,6 +198,35 @@ test('the installer repairs the two states that block later pnpm operations', as
     assert.equal(captured.status, 0, captured.stderr);
     assert.match(captured.stderr, /no longer matches the locked integrity/);
     assert.equal(run('nothing about checksums').status, 1);
+
+    // 2c. A symlinked manifest is never rewritten.
+    const link = path.join(root, 'link.json');
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': `file:${root}/gone.tgz` } }));
+    await fs.symlink(manifest, link);
+    const linked = spawnSync('bash', [repair], { encoding: 'utf8',
+      env: { ...process.env, MANIFEST: link, TARBALL: url, PACKAGE: 'dsh-opencode-zen' } });
+    assert.equal(linked.status, 1);
+    assert.match(linked.stderr, /refusing to rewrite a non-regular manifest/);
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': url } }));
+
+    // 2d. A pre-created symlink at the guessable backup name must not let anyone redirect the copy,
+    // and the manifest itself must not be written through a symlink.
+    const victim = path.join(root, 'victim.txt');
+    await fs.writeFile(victim, 'ORIGINAL');
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': `file:${root}/gone.tgz` } }));
+    const planted = [];
+    for (let offset = 0; offset < 4000; offset += 1) {
+      const name = `${manifest}.bak-opencode-zen-${Date.now() + offset}`;
+      planted.push(name);
+      try { await fs.symlink(victim, name); } catch { /* Already planted. */ }
+    }
+    const attacked = run('nothing about checksums');
+    assert.equal(attacked.status, 0, attacked.stderr);
+    assert.equal(await fs.readFile(victim, 'utf8'), 'ORIGINAL', 'the victim must be untouched');
+    assert.match(attacked.stderr, /no backup written/);
+    assert.equal(JSON.parse(await fs.readFile(manifest, 'utf8')).dependencies['dsh-opencode-zen'], url);
+    for (const name of planted) await fs.rm(name, { force: true });
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': url } }));
 
     // 3. Nothing to do: already correct, another package, or a present local file.
     assert.equal(run().status, 1);

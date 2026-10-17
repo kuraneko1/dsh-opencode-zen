@@ -250,3 +250,18 @@ test('failed resolved-config isolation shuts down OpenCode and removes copied cr
   assert.equal(fs.readFileSync(path.join(f.root, 'oc-stopped'), 'utf8'), 'SIGTERM');
   await assert.rejects(fetch(`http://127.0.0.1:${f.proxyPort}/health`, { signal: AbortSignal.timeout(1000) }));
 });
+
+test('an OpenCode launcher that adds variables is reported by name, never by value', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  // Exactly the observed real-world shape: a shell wrapper earlier on PATH that exports a
+  // variable and execs the real binary, so the child's environment exceeds what we passed.
+  const wrapper = path.join(f.root, 'opencode-wrapper.sh');
+  fs.writeFileSync(wrapper, `#!/bin/sh\nexport ZEN_WRAPPED_SECRET=must-not-be-logged\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(f.root, 'fake-opencode.mjs'))} "$@"\n`, { mode: 0o700 });
+  f.env.OPENCODE_BIN = wrapper;
+  const owner = f.start();
+  await owner.waitFor('warning: the OpenCode launcher added environment variable(s)');
+  await owner.waitFor('ZEN_WRAPPED_SECRET');
+  assert.ok(owner.output().includes('warning: the OpenCode launcher added environment variable(s)'));
+  assert.ok(!owner.output().includes('must-not-be-logged'), 'the value must never be logged');
+  assert.ok(!owner.output().includes('SHLVL'), 'shell bookkeeping variables are not worth reporting');
+});
