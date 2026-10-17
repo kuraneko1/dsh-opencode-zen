@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.14
+
+- The relay start wait is bounded by wall-clock (150s, 3s probes) instead of 120 attempts with 1s
+  probes. On a cold cache the OpenCode client fetches its model metadata before answering, so a
+  fresh machine could exhaust the old window while the server was still working — measured while
+  building the sandbox image, where the relay reported "did not become healthy" after 61s.
+
 ## 0.2.13
 
 - Correct a claim the provider invalidated: a Zen credential **is** required now. The anonymous lane that this

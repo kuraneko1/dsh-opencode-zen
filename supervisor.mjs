@@ -151,13 +151,17 @@ async function run() {
     }
     const opencode = start(requested || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
     const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
+    // Bound by wall-clock, not by a fixed number of attempts: on a cold cache the client fetches
+    // its model metadata first and can ignore a short probe for a minute or more (measured in a
+    // fresh container, where the old 120-attempt loop gave up while the server was still working).
     let ready = false;
-    for (let i = 0; i < 120 && !stopping; i++) {
-      try { ready = (await fetch(`http://127.0.0.1:${ocPort}/global/health`, { headers: { authorization }, signal: AbortSignal.timeout(1000), redirect: 'error' })).ok; } catch { /* Still starting. */ }
+    const deadline = Date.now() + 150_000;
+    while (!stopping && Date.now() < deadline) {
+      try { ready = (await fetch(`http://127.0.0.1:${ocPort}/global/health`, { headers: { authorization }, signal: AbortSignal.timeout(3000), redirect: 'error' })).ok; } catch { /* Still starting. */ }
       if (ready) break;
       await delay(500);
     }
-    if (!ready) throw new Error('dedicated OpenCode did not become ready');
+    if (!ready) throw new Error('dedicated OpenCode did not become ready within 150s');
     // Read this only once the client is up: a shell wrapper is still running when spawn returns.
     reportInheritedEnvironment(opencode.pid, new Set(Object.keys(opencodeEnv)));
     const resolved = await fetch(`http://127.0.0.1:${ocPort}/config`, { headers: { authorization }, signal: AbortSignal.timeout(5000), redirect: 'error' }).then(r => r.json());
