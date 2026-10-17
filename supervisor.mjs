@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runtimeDirectory, stateToken } from './runtime-path.mjs';
+import { opencodeModelOverrides } from './zen-limits.mjs';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -108,7 +109,9 @@ async function run() {
       FREEMODELS_API_KEY: apiKey, OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode' };
     const config = { plugin: [pathToFileURL(path.join(here, 'opencode-plugin.mjs')).href],
       permission: { '*': 'deny' }, default_agent: 'dsh-bridge', autoupdate: false,
-      share: 'disabled', enabled_providers: ['opencode'], compaction: { auto: false, prune: false } };
+      share: 'disabled', enabled_providers: ['opencode'], compaction: { auto: false, prune: false },
+      // Without this, OpenCode truncates long input at the published 200k client limit.
+      provider: { opencode: { models: opencodeModelOverrides() } } };
     start(process.env.OPENCODE_BIN || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], {
       ...common, HOME: path.join(runtime, 'oc-home'),
       OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode',

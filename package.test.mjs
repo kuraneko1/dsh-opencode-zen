@@ -25,7 +25,7 @@ test('npm payload contains the plugin, supervisor and tests but no state, creden
   const result = spawnSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { cwd: here, encoding: 'utf8', timeout: 25000 });
   assert.equal(result.status, 0, result.stderr);
   const files = JSON.parse(result.stdout)[0].files.map(file => file.path);
-  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'cordis.patch.yml', 'plugin.test.mjs', 'LICENSE']) assert.ok(files.includes(name), name);
+  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'cordis.patch.yml', 'plugin.test.mjs', 'LICENSE']) assert.ok(files.includes(name), name);
   for (const name of files) {
     assert.ok(!/(^|\/)(runtime|node_modules|\.env|\.credentials\.yaml)(\/|$)/.test(name), name);
     assert.ok(!/\.key$|auth\.json|\.bak|^bench_|catalog\.json|dsh-freemodels\.patch|oc-models/.test(name), name);
@@ -33,14 +33,15 @@ test('npm payload contains the plugin, supervisor and tests but no state, creden
 });
 
 test('published executable code has no personal checkout assumptions or foreign credential readers', async () => {
-  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs']) {
+  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'zen-limits.mjs']) {
     const source = await fs.readFile(path.join(here, name), 'utf8');
     assert.doesNotMatch(source, /\/home\/ryu|DSH OpenCode free|\.hermes\/auth|\.local\/share\/opencode\/auth/);
     assert.doesNotMatch(source, /NVIDIA_API_KEY|OPENROUTER_API_KEY|LOCAL_API_KEY/);
   }
 });
 
-test('plugin, relay and setup do not depend on the RDSH launcher', async () => {  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'opencode-plugin.mjs', 'opencode-bridge.mjs']) {
+test('plugin, relay and setup do not depend on the RDSH launcher', async () => {
+  for (const name of ['index.mjs', 'server.mjs', 'supervisor.mjs', 'setup.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'opencode-plugin.mjs', 'opencode-bridge.mjs', 'bench-context.mjs']) {
     const source = await fs.readFile(path.join(here, name), 'utf8');
     // Comments may mention RDSH; executable code must not call or require it.
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -51,10 +52,11 @@ test('plugin, relay and setup do not depend on the RDSH launcher', async () => {
   assert.ok(metadata.scripts.test.includes('node --test'));
 });
 
-test('bare-node entry points import only their own dependencies, never host-provided peers', async () => {  // index.mjs is the Cordis plugin and legitimately uses peers the DSH launcher resolves.
+test('bare-node entry points import only their own dependencies, never host-provided peers', async () => {
+  // index.mjs is the Cordis plugin and legitimately uses peers the DSH launcher resolves.
   const own = new Set(Object.keys(metadata.dependencies || {}));
   const bare = specifier => specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
-  for (const name of ['setup.mjs', 'supervisor.mjs', 'server.mjs', 'runtime-path.mjs', 'opencode-plugin.mjs', 'opencode-bridge.mjs']) {
+  for (const name of ['setup.mjs', 'supervisor.mjs', 'server.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'opencode-plugin.mjs', 'opencode-bridge.mjs', 'bench-context.mjs']) {
     const source = await fs.readFile(path.join(here, name), 'utf8');
     for (const match of source.matchAll(/^\s*(?:import|export)[^'"]*from\s*['"]([^'"]+)['"]/gm)) {
       const specifier = match[1];

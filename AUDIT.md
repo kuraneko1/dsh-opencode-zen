@@ -46,6 +46,14 @@ Explicit live checks: [bridge smoke](<bridge-smoke.mjs>) tests tool calls and a 
 
 Launcher independence was verified outside RDSH: a temporary `DSH_HOME` profile was created, the plugin installed with plain `dsh plugin --profile … add`, setup applied, and a real Zen one-shot answered an exact-string prompt. Only the RDSH smoke test needs `rdsh`; the plugin, relay, setup and supervisor never reference it.
 
+## Context truncation
+
+The published Zen metadata declares only 200k for some free models, and the dedicated OpenCode client truncates input above whatever it declares **without an error** — a long DSH session silently loses history. The relay therefore passes an explicit per-model `limit` for models measured above the published value ([zen-limits.mjs](<zen-limits.mjs>)), and the relay advertises the client's resolved value to DSH.
+
+Measured here against the live relay: `zen/deepseek-v4.1-flash-free` 999,312 prompt tokens (23s) and `zen/glm-5.3-flash-free` 1,047,653 prompt tokens (58s); one earlier GLM run at the same size returned the provider's own 429 "Endpoint is unavailable", which is preserved rather than hidden. Unmeasured models are not raised. [bench-context.mjs](<bench-context.mjs>) re-measures any model.
+
+A related provider behaviour: a request whose only tool has an empty parameter schema is refused with `403 FreeTierError`. This repository does not invent tools to get around it; DSH sends real tool schemas and passes.
+
 ## Limits / not checked
 
 - Text Chat Completions only. Zen models using another wire protocol are excluded, not silently converted through an execution-capable legacy agent.

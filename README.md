@@ -101,6 +101,27 @@ The standard bundle uses these defaults. Only override the existing row if neede
 
 The plugin resolves the named credential through DSH for each operation. Never put a secret in YAML. It discovers the authenticated Zen catalog lazily, shares concurrent refreshes, and refreshes after 60 seconds. Invalid/unavailable discovery does not fall back to stale models. A request already prepared by DSH keeps its captured model generation.
 
+### Context limits
+
+The published Zen metadata declares only 200k for some free models, and the dedicated OpenCode client
+**silently truncates** anything above whatever it declares — a long session then drops history with no error.
+The relay therefore gives measured models an explicit client limit ([zen-limits.mjs](<zen-limits.mjs>)):
+
+| model | declared here | measured on this setup |
+|---|---|---|
+| `zen/deepseek-v4.1-flash-free` | 1,000,000 | 999,312 prompt tokens, 23s |
+| `zen/glm-5.3-flash-free` | 1,000,000 | 1,047,653 prompt tokens, 58s (648,753 in 9.7s at the 500k size) |
+
+Re-measure any other model instead of assuming:
+
+```bash
+node bench-context.mjs zen/<model-id> 250000     # drives the live relay and consumes free quota
+```
+
+`FREEMODELS_ZEN_LIMITS='{"<model-id>":{"context":N,"output":N}}'` on the relay extends the table for models
+you have measured yourself; unmeasured models keep the catalogue value. The override reaches DSH too, because
+the relay advertises whatever the dedicated client resolved.
+
 DSH's Web profile can live-reload configuration while HMR is enabled. Installing/replacing package code can require a host restart; do not assume browser refresh alone replaces imported JS.
 
 ### Relay state and ports
@@ -120,6 +141,8 @@ With custom ports, set the plugin's `proxyURL` and pass `--base-url http://127.0
 
 - Public binding is fixed to 127.0.0.1. API calls need the private Bearer token; Host/Origin/browser requests are checked. `/health` only reports cached, non-sensitive state.
 - Only `zen/<slug>` requests are accepted. Catalog entries must come from OpenCode's `opencode` provider and publish strictly zero input/output and optional pricing. Unknown pricing schemas fail closed.
+- The client-declared context limit is raised only for models measured above the published value (see Context limits). Everything else keeps the published limit.
+- The provider rejects a request whose only tool is a placeholder with an empty schema (`403 FreeTierError`). Send a realistic tool, as DSH does; this repository never invents one.
 - Dedicated HOME/XDG, controlled environment, empty auth file, all tool permissions denied and a single checked OpenCode plugin. Other provider keys are not forwarded.
 - Caller tools are forwarded unchanged. Only the caller can execute them; if you use RDSH's strict tool boundary, it is never disabled.
 - Bounded input/concurrency/SSE parser, byte-preserving streaming, validated completion termination, disconnect cancellation and deadlines. Provider errors and Retry-After are retained. Credentialed redirects are refused.

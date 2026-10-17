@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COPIED = ['supervisor.mjs', 'server.mjs', 'opencode-bridge.mjs', 'opencode-plugin.mjs', 'runtime-path.mjs'];
+const COPIED = ['supervisor.mjs', 'server.mjs', 'opencode-bridge.mjs', 'opencode-plugin.mjs', 'runtime-path.mjs', 'zen-limits.mjs'];
 const FAKE_OC = `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
@@ -166,6 +166,9 @@ test('supervisor isolates HOME/env/auth, becomes actually ready and SIGTERM clea
   assert.equal(observed.config.agent['dsh-bridge'].permission['*'], 'deny');
   assert.deepEqual(observed.config.plugin, [new URL('./opencode-plugin.mjs', `file://${f.root}/`).href]);
   assert.deepEqual(observed.config.enabled_providers, ['opencode']);
+  // Long sessions must not be silently truncated at the published 200k client limit.
+  assert.equal(observed.config.provider.opencode.models['deepseek-v4.1-flash-free'].limit.context, 1000000);
+  assert.equal(observed.config.provider.opencode.models['glm-5.3-flash-free'].limit.context, 1000000);
   assert.deepEqual(observed.authKeys, []);
   assert.equal(observed.authMode, 0o600);
   const copiedAuth = path.join(f.runtime, 'oc-data/opencode/auth.json');

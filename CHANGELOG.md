@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+- Restore the measured long-context behaviour: the dedicated OpenCode client now gets an explicit per-model
+  `limit`, because the published Zen metadata declares only 200k and the client otherwise truncates long input
+  silently. `zen/deepseek-v4.1-flash-free` measured 999,312 prompt tokens and `zen/glm-5.3-flash-free`
+  1,047,653 prompt tokens (previously both declared 200000).
+- Unmeasured models keep the catalogue value; `FREEMODELS_ZEN_LIMITS` extends the measured table, and
+  [bench-context.mjs](bench-context.mjs) measures a model against the live relay.
+- Documented that the free-tier gate rejects a placeholder tool with an empty schema (403 FreeTierError); a
+  realistic tool schema, as DSH sends, passes.
+
 ## 0.2.1
 
 - Easier install: `dsh-opencode-zen-setup --install --profile web --service` now generates, enables and health-checks the relay's systemd user unit, so a full install is two commands.
