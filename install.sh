@@ -44,6 +44,7 @@ PROXY="$DSH_HOME/profiles/$PROFILE/node_modules/.bin/dsh-opencode-zen-proxy"
 
 if [[ "$SERVICE" == "1" ]] && "$SETUP" --install --profile "$PROFILE" --service; then
   echo "install: relay service 'dsh-opencode-zen.service' is running"
+  echo "install: stop it with: systemctl --user disable --now dsh-opencode-zen.service"
 else
   [[ "$SERVICE" == "1" ]] && echo "install: no systemd user service here; registering without one" >&2
   "$SETUP" --install --profile "$PROFILE"
@@ -53,5 +54,4 @@ fi
 
 cat <<'DONE'
 install: done. Pick "OpenCode Zen (free)" in the model selector.
-install: stop the relay with: systemctl --user disable --now dsh-opencode-zen.service
 DONE
