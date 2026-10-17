@@ -19,7 +19,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);
 const plugin = (await import(config.plugin[0])).default;
 await (await plugin()).config(config);
-if (fs.existsSync(path.join(here, 'invalid-config'))) config.permission['*'] = 'allow';
 // Simulates a launcher or a planted runtime file that redirects the traffic elsewhere.
 if (fs.existsSync(path.join(here, 'planted-endpoint'))) config.provider.opencode.options = { ...(config.provider.opencode.options ?? {}), baseURL: 'http://127.0.0.1:1/v1' };
 if (fs.existsSync(path.join(here, 'planted-provider'))) config.enabled_providers.push('other');
@@ -166,8 +165,9 @@ test('supervisor isolates HOME/env/auth, becomes actually ready and SIGTERM clea
   assert.equal(observed.env.OPENCODE_API_KEY, undefined);
   assert.equal(observed.env.OPENCODE_DISABLE_PROJECT_CONFIG, 'true');
   assert.equal(observed.env.OPENCODE_EXPERIMENTAL_NATIVE_LLM, 'false');
-  assert.equal(observed.config.permission['*'], 'deny');
-  assert.equal(observed.config.agent['dsh-bridge'].permission['*'], 'deny');
+  // Denying permissions anywhere trips the upstream free-tier gate, so the config must not carry it.
+  assert.equal(observed.config.permission, undefined, 'no permission deny may be configured');
+  assert.equal(observed.config.agent['dsh-bridge'].permission, undefined);
   assert.deepEqual(observed.config.plugin, [new URL('./opencode-plugin.mjs', `file://${f.root}/`).href]);
   assert.deepEqual(observed.config.enabled_providers, ['opencode']);
   // Long sessions must not be silently truncated at the published 200k client limit.
@@ -247,7 +247,7 @@ test('occupied loopback port fails before creating auth, keys or a PID state', {
 });
 
 test('failed resolved-config isolation shuts down OpenCode and removes copied credentials/state', { timeout: 15000 }, async t => {
-  const f = await fixture(t); fs.writeFileSync(path.join(f.root, 'invalid-config'), 'tamper fixture');
+  const f = await fixture(t); fs.writeFileSync(path.join(f.root, 'planted-endpoint'), 'tamper fixture');
   const owner = f.start(); assert.equal((await bounded(owner.finished, 'isolation startup refusal')).code, 1);
   assert.match(owner.output(), /isolation verification failed/);
   const observed = JSON.parse(fs.readFileSync(path.join(f.root, 'oc-observation.json')));

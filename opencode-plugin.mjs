@@ -17,7 +17,6 @@ export default async function DshBridgePlugin() {
       config.agent['dsh-bridge'] = {
         mode: 'primary', hidden: true,
         prompt: 'Relay the registered request. Do not use tools.',
-        permission: { '*': 'deny' },
       };
       config.provider ??= {};
       const provider = config.provider.opencode ??= {};

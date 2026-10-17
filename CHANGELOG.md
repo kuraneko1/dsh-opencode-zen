@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.18
+
+**The plugin's own deny-all configuration was breaking the free tier.** Measured on a machine where a
+plain client is accepted: the same client with `permission: { '*': 'deny' }` gets `403 FreeTierError`, and
+without it answers normally — the upstream issues #50627/#51241/#51193 describe exactly this.
+
+- The relay no longer configures a permission deny, and the bridge agent no longer carries one.
+- The isolation check no longer requires deny; it still pins the plugin, the provider set, the absence of an
+  endpoint override, MCP servers, extra agents, sharing and autoupdate.
+- Nothing can execute regardless: the relay sends `tools: {}` and re-attaches the caller's tools only to the
+  upstream request body, so OpenCode never receives a tool to call.
+
 ## 0.2.17
 
 - CI caught a race in the repair test: it planted thousands of symlinks across a time window and then
