@@ -3,40 +3,57 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.5) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.6) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.5}"
+VERSION="${VERSION:-0.2.6}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
 TARBALL="${TARBALL:-https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v${VERSION}/dsh-opencode-zen-${VERSION}.tgz}"
 
 # --- repair: begin -----------------------------------------------------------
-# pnpm refuses every operation on a manifest whose `file:` dependency no longer
-# exists, so an upgrade from a deleted local tarball needs this entry repaired first.
-repair_stale_local_specifier() {
+# Two states block every later pnpm operation, so this rewrites only our own entry:
+#   1. a `file:` specifier whose tarball was deleted
+#   2. a recorded integrity that no longer matches the URL (an asset was republished in place)
+repair_blocking_dependency() {
   node - "$MANIFEST" "$TARBALL" "$PACKAGE" <<'NODE'
 const fs = require('node:fs');
 const path = require('node:path');
 const [file, url, name] = process.argv.slice(2);
+const logRoot = path.join(path.dirname(file), '.plugin-manager', 'logs');
 const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
-for (const field of ['dependencies', 'devDependencies']) {
-  const current = manifest[field]?.[name];
-  if (typeof current !== 'string') continue;
-  if (!current.startsWith('file:')) continue;
-  // A relative file: specifier belongs to the manifest, not to the current directory.
+const field = ['dependencies', 'devDependencies'].find((key) => typeof manifest[key]?.[name] === 'string');
+if (field === undefined) process.exit(1);
+const current = manifest[field][name];
+
+// A relative file: specifier belongs to the manifest, not to the current directory.
+const localMissing = () => {
+  if (!current.startsWith('file:')) return false;
   const target = current.slice('file:'.length);
-  if (fs.existsSync(path.isAbsolute(target) ? target : path.resolve(path.dirname(file), target))) continue;
-  manifest[field][name] = url;
-  fs.copyFileSync(file, `${file}.bak-opencode-zen-${Date.now()}`);
-  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
-  console.error(`install: replaced the missing local specifier ${current}`);
-  process.exit(0);
-}
-process.exit(1);
+  return !fs.existsSync(path.isAbsolute(target) ? target : path.resolve(path.dirname(file), target));
+};
+// pnpm keeps the manager's diagnostics in the newest operation log. Only trust it when it
+// names this exact entry: an unrelated failure must not rewrite a deliberate local pin.
+const integrityMismatch = () => {
+  if (current.startsWith('file:') || current === url) return false;
+  try {
+    const newest = fs.readdirSync(logRoot).map((entry) => path.join(logRoot, entry, 'pnpm.log'))
+      .filter((candidate) => fs.existsSync(candidate))
+      .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];
+    if (newest === undefined) return false;
+    const text = fs.readFileSync(newest, 'utf8');
+    return /integrity|checksum/i.test(text) && (text.includes(current) || text.includes(path.basename(current)));
+  } catch { return false; }
+};
+const reason = localMissing() ? 'the local tarball is gone' : integrityMismatch() ? 'the published tarball no longer matches the locked integrity' : undefined;
+if (reason === undefined) process.exit(1);
+manifest[field][name] = url;
+fs.copyFileSync(file, `${file}.bak-opencode-zen-${Date.now()}`);
+fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+console.error(`install: rewrote ${name} to ${url} because ${reason}`);
 NODE
 }
 # --- repair: end -------------------------------------------------------------
@@ -65,7 +82,7 @@ add_plugin() { "$launcher" plugin --profile "$PROFILE" add "$TARBALL"; }
 
 echo "install: adding $PACKAGE $VERSION to profile '$PROFILE' with $launcher"
 if ! add_plugin; then
-  if repair_stale_local_specifier; then
+  if repair_blocking_dependency; then
     echo "install: retrying the install"
     if ! add_plugin; then
       echo "install: still refused; see the diagnostics above and re-run" >&2

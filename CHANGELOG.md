@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.6
+
+- Released artifacts are immutable: never re-upload a tarball at an existing version. Doing that leaves every
+  installed profile with a recorded integrity that no longer matches the URL, and pnpm then correctly refuses
+  to continue. This happened while preparing 0.2.5, so this release fixes the recovery path rather than
+  rewriting 0.2.5 again.
+- `install.sh` now repairs both blocking states by rewriting only its own dependency entry (with a backup):
+  a deleted local `file:` tarball, and an integrity mismatch recorded for a URL. When it sees the latter it
+  says so, because a changed artifact is exactly what a tampering signal looks like.
+
 ## 0.2.5
 
 - `OPENCODE_BIN` now works for the systemd service path too: the unit carries that binary's directory, and a

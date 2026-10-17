@@ -148,33 +148,50 @@ test('the default README is Japanese and the one-command installer is shippable'
   assert.equal(syntax.status, 0, syntax.stderr);
 });
 
-test('the installer repairs a stale local specifier that would block every pnpm operation', async () => {
+test('the installer repairs the two states that block later pnpm operations', async () => {
   const script = await fs.readFile(path.join(here, 'install.sh'), 'utf8');
   const body = script.split('# --- repair: begin ---')[1]?.split('# --- repair: end ---')[0]?.split('\n').slice(1).join('\n');
   assert.ok(body, 'install.sh must keep the marked repair section');
   const root = await fs.mkdtemp(path.join(here, '.repair-test-'));
   try {
     const repair = path.join(root, 'repair.sh');
-    await fs.writeFile(repair, `set -euo pipefail\n${body}\nrepair_stale_local_specifier\n`, { mode: 0o755 });
+    await fs.writeFile(repair, `set -euo pipefail\n${body}\nrepair_blocking_dependency\n`, { mode: 0o755 });
     const manifest = path.join(root, 'package.json');
-    const run = (url, file, name) => spawnSync('bash', [repair], { encoding: 'utf8',
-      env: { ...process.env, MANIFEST: file, TARBALL: url, PACKAGE: name } });
     const url = 'https://example.test/dsh-opencode-zen-1.0.0.tgz';
-    // A missing file: specifier is repaired and backed up.
+    const logs = path.join(root, '.plugin-manager/logs/operation-x');
+    const run = () => spawnSync('bash', [repair], { encoding: 'utf8',
+      env: { ...process.env, MANIFEST: manifest, TARBALL: url, PACKAGE: 'dsh-opencode-zen' } });
+    const addLog = async text => {
+      await fs.mkdir(logs, { recursive: true });
+      await fs.writeFile(path.join(logs, 'pnpm.log'), text);
+    };
+
+    // 1. A deleted local tarball.
     await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': `file:${root}/gone.tgz`, other: 'keep' } }));
-    const fixed = run(url, manifest, 'dsh-opencode-zen');
-    assert.equal(fixed.status, 0, fixed.stderr);
-    assert.match(fixed.stderr, /replaced the missing local specifier/);
+    const missing = run();
+    assert.equal(missing.status, 0, missing.stderr);
+    assert.match(missing.stderr, /the local tarball is gone/);
     const rewritten = JSON.parse(await fs.readFile(manifest, 'utf8'));
     assert.equal(rewritten.dependencies['dsh-opencode-zen'], url);
     assert.equal(rewritten.dependencies.other, 'keep');
     assert.equal((await fs.readdir(root)).filter(x => x.includes('.bak-opencode-zen-')).length, 1);
-    // Already correct, a different package, or an existing local file: nothing to do.
-    assert.equal(run(url, manifest, 'dsh-opencode-zen').status, 1);
+
+    // 2. A published tarball whose bytes changed under a locked integrity.
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': 'https://example.test/old.tgz' } }));
+    assert.equal(run().status, 1, 'an unrelated log must not trigger a rewrite');
+    await addLog('[ERR_PNPM_TARBALL_INTEGRITY] Got unexpected checksum for old.tgz');
+    const mismatch = run();
+    assert.equal(mismatch.status, 0, mismatch.stderr);
+    assert.match(mismatch.stderr, /no longer matches the locked integrity/);
+    assert.equal(JSON.parse(await fs.readFile(manifest, 'utf8')).dependencies['dsh-opencode-zen'], url);
+
+    // 3. Nothing to do: already correct, another package, or a present local file.
+    assert.equal(run().status, 1);
     await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'dsh-opencode-zen': 'file:./present.tgz' } }));
     await fs.writeFile(path.join(root, 'present.tgz'), 'x');
-    assert.equal(run(url, manifest, 'dsh-opencode-zen').status, 1);
-    assert.equal(run(url, manifest, 'some-other-package').status, 1);
+    assert.equal(run().status, 1);
+    await fs.writeFile(manifest, JSON.stringify({ dependencies: { 'other-package': `file:${root}/gone.tgz` } }));
+    assert.equal(run().status, 1);
   } finally {
     const resolved = path.resolve(root);
     assert.equal(path.dirname(resolved), here);
@@ -182,3 +199,4 @@ test('the installer repairs a stale local specifier that would block every pnpm 
     await fs.rm(resolved, { recursive: true, force: true });
   }
 });
+
