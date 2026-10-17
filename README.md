@@ -11,9 +11,13 @@ OpenCode Zen の**無料モデル専用**のDSHプラグイン。素の `dsh` �
 | 必要なもの | 理由 |
 |---|---|
 | **`opencode` コマンド** | **必須**。Zenの無料枠は「OpenCode本体からの要求」しか受け付けません。中継がこれを上流クライアントとして自動起動します。`PATH` にあるか `OPENCODE_BIN=/path/to/opencode` |
-| Linux / Node 22.19以上 | 中継とsystemdサービスに必要 |
+| Linux / Node 22.19以上 | 中継に必要（systemdは任意） |
+| `pnpm` | プラグインマネージャが使用。`install.sh` は `corepack` で自動有効化を試み、無理なら `npm i -g pnpm` を案内します |
 
 OpenCodeを入れたくない場合、このプラグインは使えません。DSH標準のプロバイダ（`deepseek-official` や `opencode-go` など）を使ってください。
+
+プロファイルが無い環境では、`install.sh` が `dsh plugin` にプロファイル作成を任せます（手動準備は不要）。
+systemdが無い環境（コンテナ等）では中継をバックグラウンドで起動します。
 
 ## ポート
 
@@ -41,11 +45,18 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.9/dsh-opencode-zen-0.2.9.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.10/dsh-opencode-zen-0.2.10.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
 インストール後、モデル選択で **OpenCode Zen（無料）** を選びます。既定モデルは変更しません。
+
+## 無料枠が拒否されるとき
+
+`OpenCode's free tier can only be used from within OpenCode` という403は、**本物のOpenCodeからでも返ります**。
+検証済みの例: まっさらなコンテナにOpenCode 1.19.3を入れ、設定もプラグインも無しで `opencode run` した場合、
+およびホストのOpenCode 1.19.0で同じ結果でした。プロバイダ側の判定なので、このプラグインでは回避しません
+（クライアント偽装はしません）。時間を置くか、別のプロバイダを使ってください。
 
 ## 知っておくこと
 

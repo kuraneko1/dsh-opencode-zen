@@ -11,10 +11,14 @@ A DSH plugin for **OpenCode Zen free models only**. Works with plain `dsh` and t
 | Needed | Why |
 |---|---|
 | **`opencode` command** | **Mandatory.** Zen's free tier only accepts requests from the real OpenCode client; the relay starts it as the upstream client. On `PATH`, or `OPENCODE_BIN=/path/to/opencode` |
-| Linux / Node 22.19+ | For the relay and its systemd service |
+| Linux / Node 22.19+ | For the relay (systemd is optional) |
+| `pnpm` | Used by the plugin manager. `install.sh` tries to enable it through `corepack`, otherwise it tells you to run `npm i -g pnpm` |
 
 Without OpenCode this plugin cannot work — use a built-in DSH provider such as `deepseek-official` or
 `opencode-go` instead.
+
+With no profile yet, `install.sh` lets `dsh plugin` initialize one, and on a machine without systemd
+(containers, macOS) it starts the relay in the background instead.
 
 ## Ports
 
@@ -43,11 +47,18 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.9/dsh-opencode-zen-0.2.9.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.10/dsh-opencode-zen-0.2.10.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
 Then pick **OpenCode Zen (free)** in the model selector. Your default model is not changed.
+
+## When the free tier refuses
+
+A `403 OpenCode's free tier can only be used from within OpenCode` is returned **even to a genuine OpenCode
+client**. Verified: a plain `opencode run` on OpenCode 1.19.3 in a fresh container with no config and no
+plugin, and on OpenCode 1.19.0 on the host, both produced it. It is a provider-side decision, so this plugin
+does not work around it (no client impersonation). Try again later or use another provider.
 
 ## Good to know
 

@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.9) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.10) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.9}"
+VERSION="${VERSION:-0.2.10}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"
@@ -25,7 +25,8 @@ const path = require('node:path');
 const [file, url, name] = process.argv.slice(2);
 const logRoot = path.join(path.dirname(file), '.plugin-manager', 'logs');
 // Write only through a regular file: the rest of this project refuses symlinked configuration too.
-const info = fs.lstatSync(file);
+const info = fs.lstatSync(file, { throwIfNoEntry: false });
+if (info === undefined) process.exit(1); // No manifest yet: nothing to repair.
 if (info.isSymbolicLink() || !info.isFile()) {
   console.error(`install: refusing to rewrite a non-regular manifest: ${file}`);
   process.exit(1);
@@ -83,7 +84,9 @@ NODE
 
 [[ "$PROFILE" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "install: invalid PROFILE '$PROFILE'" >&2; exit 2; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "install: invalid VERSION '$VERSION'" >&2; exit 2; }
-[[ -f "$MANIFEST" ]] || { echo "install: no profile '$PROFILE' under $DSH_HOME" >&2; exit 1; }
+if [[ ! -f "$MANIFEST" ]]; then
+  echo "install: no profile '$PROFILE' yet; the plugin manager will initialize one"
+fi
 
 launcher="${LAUNCHER:-}"
 if [[ -z "$launcher" ]]; then
@@ -100,6 +103,13 @@ else
   command -v opencode >/dev/null 2>&1 \
     || { echo "install: opencode not found on PATH; install OpenCode or set OPENCODE_BIN to its binary" >&2; exit 1; }
 fi
+# The plugin manager installs bundles with pnpm; without it the manager only says so in passing.
+if ! command -v pnpm >/dev/null 2>&1 && command -v corepack >/dev/null 2>&1; then
+  echo "install: enabling pnpm through corepack"
+  corepack enable pnpm >/dev/null 2>&1 || corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+fi
+command -v pnpm >/dev/null 2>&1 \
+  || { echo "install: pnpm is required by the plugin manager; install it with 'npm i -g pnpm' (or 'corepack enable pnpm')" >&2; exit 1; }
 
 echo "install: adding $PACKAGE $VERSION to profile '$PROFILE' with $launcher"
 # The manager's own log holds only the command line, so capture its output as the evidence
@@ -129,14 +139,31 @@ SETUP="$DSH_HOME/profiles/$PROFILE/node_modules/.bin/dsh-opencode-zen-setup"
 PROXY="$DSH_HOME/profiles/$PROFILE/node_modules/.bin/dsh-opencode-zen-proxy"
 [[ -x "$SETUP" && -x "$PROXY" ]] || { echo "install: the package did not install its commands" >&2; exit 1; }
 
-if [[ "$SERVICE" == "1" ]] && "$SETUP" --install --profile "$PROFILE" --service; then
+RUNTIME_DIR="${FREEMODELS_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dsh-opencode-zen}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8099/v1}"
+relay_healthy() { curl -fsS --max-time 2 "${BASE_URL%/v1}/health" >/dev/null 2>&1; }
+wait_for_relay() { for _ in $(seq 1 60); do relay_healthy && return 0; sleep 1; done; return 1; }
+
+if [[ "$SERVICE" == "1" ]] && "$SETUP" --install --profile "$PROFILE" --base-url "$BASE_URL" --service; then
   echo "install: relay service 'dsh-opencode-zen.service' is running"
   echo "install: stop it with: systemctl --user disable --now dsh-opencode-zen.service"
 else
-  [[ "$SERVICE" == "1" ]] && echo "install: no systemd user service here; registering without one" >&2
-  "$SETUP" --install --profile "$PROFILE"
-  echo "install: keep the relay running yourself, for example:"
-  echo "  $PROXY run"
+  # No systemd here (containers, macOS) or the service failed: own a background relay instead,
+  # because setup cannot read the token or the catalog before the relay is actually up.
+  if [[ "$SERVICE" == "1" ]]; then
+    echo "install: no systemd user service here; using a background relay" >&2
+  fi
+  if relay_healthy; then
+    echo "install: a relay is already answering at $BASE_URL"
+  else
+    mkdir -p "$RUNTIME_DIR"
+    nohup "$PROXY" run >"$RUNTIME_DIR/relay.log" 2>&1 &
+    echo "$!" >"$RUNTIME_DIR/relay.pid"
+    echo "install: started the relay (pid $!), log: $RUNTIME_DIR/relay.log"
+    wait_for_relay || { echo "install: the relay did not become healthy; see $RUNTIME_DIR/relay.log" >&2; exit 1; }
+  fi
+  "$SETUP" --install --profile "$PROFILE" --base-url "$BASE_URL"
+  echo "install: the relay keeps running in the background; stop it with: $PROXY stop"
 fi
 
 echo "install: done. Pick \"OpenCode Zen (free)\" in the model selector."

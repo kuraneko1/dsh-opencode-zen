@@ -148,6 +148,12 @@ test('the default README is Japanese and the one-command installer is shippable'
   assert.match(await fs.readFile(path.join(here, 'README.md'), 'utf8'), new RegExp(`releases/download/v${metadata.version}/dsh-opencode-zen-${metadata.version}\\.tgz`));
   const installer = await fs.readFile(path.join(here, 'install.sh'), 'utf8');
   assert.match(installer, /set -euo pipefail/);
+  // A bare machine has no profile and no pnpm, and may have no systemd: all three are handled.
+  assert.doesNotMatch(installer, /\[\[ -f "\$MANIFEST" \]\] \|\| \{ echo "install: no profile/);
+  assert.match(installer, /the plugin manager will initialize one/);
+  assert.match(installer, /pnpm is required by the plugin manager/);
+  assert.match(installer, /nohup "\$PROXY" run/);
+  assert.match(installer, /wait_for_relay \|\|/);
   assert.match(installer, /dsh-opencode-zen-\$\{VERSION\}\.tgz/, 'installer must fetch the released tarball');
   assert.doesNotMatch(installer, /\/home\/ryu|kuraneko1@/);
   const syntax = spawnSync('bash', ['-n', path.join(here, 'install.sh')], { encoding: 'utf8' });

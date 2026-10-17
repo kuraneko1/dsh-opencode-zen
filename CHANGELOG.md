@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.10
+
+Verified by installing from scratch in a clean container with DSH, OpenCode and pnpm all absent:
+
+- `install.sh` no longer requires an existing profile: `dsh plugin` initializes one, and the installer says so.
+- It checks for pnpm and enables it through corepack when possible, with `npm i -g pnpm` as the fallback,
+  instead of letting the plugin manager fail with a one-line notice.
+- Without systemd the installer now starts the relay itself, waits for `/health`, and only then registers the
+  provider (previously setup ran against a relay that was not running and failed).
+- READMEs list pnpm and explain the provider-side `FreeTierError`, which a plain OpenCode client also receives.
+
 ## 0.2.9
 
 Independent review follow-ups (the confirmations from the same pass are listed in AUDIT.md):

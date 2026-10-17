@@ -1,4 +1,4 @@
-# Security and compatibility notes — 0.2.9
+# Security and compatibility notes — 0.2.10
 
 This is the **Zen-only native-plugin revision**, superseding the local multi-provider prototype. The supported path is [the native plugin](<index.mjs>), [relay](<server.mjs>), [OpenCode fetch hook](<opencode-plugin.mjs>), [bounded bridge](<opencode-bridge.mjs>) and [supervisor](<supervisor.mjs>). No OpenRouter, NVIDIA or local route is implemented.
 
@@ -72,6 +72,28 @@ Explicit live checks: [bridge smoke](<bridge-smoke.mjs>) tests tool calls and a 
 
 Launcher independence was verified outside RDSH: a temporary `DSH_HOME` profile was created, the plugin installed with plain `dsh plugin --profile … add`, setup applied, and a real Zen one-shot answered an exact-string prompt. Only the RDSH smoke test needs `rdsh`; the plugin, relay, setup and supervisor never reference it.
 
+## Clean-room install check (0.2.10)
+
+Verified in a `node:22-bookworm` container where **DSH, OpenCode and pnpm were all absent**, following only the
+documented one command:
+
+1. `npm i -g @deepseek-ai/dsh@0.2.0-rc.2 opencode-ai` (dsh 0.2.0-rc.2, opencode 1.19.3).
+2. `SERVICE=0 bash install.sh` — with no systemd, no profile and no pnpm.
+
+That run now completes: the plugin manager initializes the profile, corepack provides pnpm, the installer
+starts the relay in the background and waits for `/health`, then setup registers the row. `dsh --profile web
+--dump-config` composes it (`opencode-zen` → `dsh-opencode-zen`, `proxyURL: http://127.0.0.1:8099/v1`) and the
+relay reports 10 models. Three defects were found and fixed on the way: an existing profile was required
+(although `dsh plugin add` creates one), a missing pnpm only produced a one-line manager notice, and the
+`SERVICE=0` path ran setup without a running relay and failed.
+
+**What did not work, and is not ours to fix:** every model request returned `403 FreeTierError`
+("OpenCode's free tier can only be used from within OpenCode") — from the relay, and **identically from a plain
+`opencode run` in the same container with no config, no plugin and no proxy**, on both 1.19.3 and the host's
+1.19.0. The provider now refuses the anonymous free lane even for genuine OpenCode clients, which matches the
+public issue reports ("free usage exceeded", the anonymous lane blocked since ~2026-09-17). This repository
+does not impersonate the client or invent tools to get around it; the upstream error stays visible.
+
 ## Context truncation
 
 The published Zen metadata declares only 200k for some free models, and the dedicated OpenCode client truncates input above whatever it declares **without an error** — a long DSH session silently loses history. The relay therefore passes an explicit per-model `limit` for models measured above the published value ([zen-limits.mjs](<zen-limits.mjs>)), and the relay advertises the client's resolved value to DSH.
@@ -82,6 +104,7 @@ A related provider behaviour: a request whose only tool has an empty parameter s
 
 ## Limits / not checked
 
+- **The upstream free lane can be refused regardless of this code.** Verified with a plain OpenCode client on two versions and two machines; see the clean-room section. Nothing here can or should bypass that.
 - **Port ownership is not authenticated.** Setup sends the relay bearer to whatever holds `127.0.0.1:8099`, and the supervisor's free-port check closes the socket before the client spawns, so a hostile same-user process that wins the race could receive the bearer or the OpenCode Basic password. Both need local code execution as the same user.
 - **The private OpenCode config directory is reused across runs.** The resolved-config checks above pin the fields that matter, but a freshly written config is not recreated from scratch every start.
 - **The child environment is best-effort.** An allowlist limits what this code forwards, but a launcher wrapper ahead of the real binary can add variables of its own (now reported by name). If a host keeps secrets in such a wrapper, that process sees them. `OPENCODE_BIN` or a clean `PATH` avoids the wrapper entirely.
