@@ -1,12 +1,20 @@
 # Changelog
 
+## 0.2.12
+
+- Correct the documented login command to `opencode auth login --provider opencode`. The positional form quoted
+  in upstream issue #52917 is parsed as a *url* by OpenCode 1.19.x and fails with
+  `Failed to load auth provider metadata from opencode: fetch() URL is invalid` — reproduced in a clean
+  container on 1.19.3 as well, so it is not a local misconfiguration. `opencode auth login` (interactive
+  selection) also works.
+
 ## 0.2.11
 
 - The `403 FreeTierError` is upstream's way of reporting **no stored OpenCode credential** (issue #52917); a
   genuine OpenCode client gets it too. The relay now adopts the operator's stored `opencode` (Zen/Console)
   entry for its dedicated client — that entry only, never their other providers — and warns when there is
   none, instead of always running anonymously.
-- Setup reports `zenCredential` and prints the one-time `opencode auth login opencode` step; the generated
+- Setup reports `zenCredential` and prints the one-time `opencode auth login --provider opencode` step; the generated
   unit pins `OPENCODE_AUTH_FILE` so the service reads the same store.
 - `OPENCODE_AUTH_FILE` overrides the store path for relocated setups.
 

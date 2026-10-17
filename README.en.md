@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.11/dsh-opencode-zen-0.2.11.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.12/dsh-opencode-zen-0.2.12.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -56,13 +56,16 @@ Then pick **OpenCode Zen (free)** in the model selector. Your default model is n
 ## The free tier needs a one-time login
 
 ```bash
-opencode auth login opencode     # sign in once, in a browser
+opencode auth login --provider opencode     # sign in once, in a browser
 systemctl --user restart dsh-opencode-zen.service   # restart the relay afterwards
 ```
 
 `403 OpenCode's free tier can only be used from within OpenCode` means **no OpenCode credential is stored**
-(upstream issue #52917 reaches the same conclusion and names `opencode auth login opencode` as the fix).
-Without it, a genuine OpenCode client gets the same 403.
+(upstream issue #52917 reaches the same conclusion and names the login as the fix). Without it, a genuine
+OpenCode client gets the same 403.
+
+Note: the form quoted in that issue, `opencode auth login opencode`, **does not work on 1.19.x** — the
+positional is parsed as a URL, so it fails with `fetch() URL is invalid`. Pass `--provider` instead.
 
 Of everything stored, the relay adopts **only the `opencode` (Zen/Console) entry** for its dedicated client;
 credentials for other providers are never copied. Without a login it starts anonymously and warns.

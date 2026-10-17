@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.11/dsh-opencode-zen-0.2.11.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.12/dsh-opencode-zen-0.2.12.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -54,13 +54,16 @@ dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/relea
 ## 無料枠には一度だけログインが必要
 
 ```bash
-opencode auth login opencode     # ブラウザでサインイン（1回だけ）
+opencode auth login --provider opencode     # ブラウザでサインイン（1回だけ）
 systemctl --user restart dsh-opencode-zen.service   # ログイン後に中継を再起動
 ```
 
 `OpenCode's free tier can only be used from within OpenCode` という403は、**OpenCodeに資格情報が
-保存されていないこと**を示します（公式issue #52917 が同じ結論で、`opencode auth login opencode` を
-修正手順として挙げています）。未ログインだと本物のOpenCodeでも同じ403になります。
+保存されていないこと**を示します（公式issue #52917 が同じ結論で、修正手順としてログインを挙げています）。
+未ログインだと本物のOpenCodeでも同じ403になります。
+
+注意: issueにある `opencode auth login opencode` は**1.19系では動きません**（位置引数をURLとして扱うため
+`fetch() URL is invalid` になります）。`--provider` を付けてください。
 
 中継は保存された資格情報のうち **`opencode`（Zen/Console）の1件だけ** を専用クライアントに渡します。
 他のプロバイダの資格情報はコピーしません。ログインしていない場合は匿名のまま起動し、警告を出します。

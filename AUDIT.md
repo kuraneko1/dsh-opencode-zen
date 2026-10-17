@@ -1,4 +1,4 @@
-# Security and compatibility notes — 0.2.11
+# Security and compatibility notes — 0.2.12
 
 This is the **Zen-only native-plugin revision**, superseding the local multi-provider prototype. The supported path is [the native plugin](<index.mjs>), [relay](<server.mjs>), [OpenCode fetch hook](<opencode-plugin.mjs>), [bounded bridge](<opencode-bridge.mjs>) and [supervisor](<supervisor.mjs>). No OpenRouter, NVIDIA or local route is implemented.
 
@@ -90,7 +90,7 @@ relay reports 10 models. Three defects were found and fixed on the way: an exist
 **What did not work, and why:** every model request returned `403 FreeTierError`. The same container with a
 plain `opencode run` — no config, no plugin, no proxy — returns the identical error on 1.19.3 and on the host's
 1.19.0, so it is not this code. Upstream issue #52917 diagnoses the message as **a missing stored OpenCode
-(Console) credential**, not an origin restriction, and names `opencode auth login opencode` as the fix, which
+(Console) credential**, not an origin restriction, and names `opencode auth login --provider opencode` as the fix, which
 other reporters confirm. On this machine `opencode auth list` had no `opencode` entry at all, and the relay's
 dedicated client was explicitly anonymous (`{}`). Earlier the same day the lane had answered this relay
 anonymously, so the provider tightened it during the session.

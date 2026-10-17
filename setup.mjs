@@ -291,7 +291,7 @@ Requires the package to be installed in the profile first, for example:
   if (!result.zenCredential) {
     console.log("");
     console.log("note: no stored OpenCode credential was found. The free tier refuses anonymous clients with");
-    console.log("      403 FreeTierError, so run 'opencode auth login opencode' once (this stores a credential");
+    console.log("      403 FreeTierError, so run 'opencode auth login --provider opencode' once (this stores a credential");
     console.log("      for the 'opencode' provider only) and then restart the relay.");
   }
 }
