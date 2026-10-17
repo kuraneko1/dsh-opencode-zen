@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.11
+
+- The `403 FreeTierError` is upstream's way of reporting **no stored OpenCode credential** (issue #52917); a
+  genuine OpenCode client gets it too. The relay now adopts the operator's stored `opencode` (Zen/Console)
+  entry for its dedicated client — that entry only, never their other providers — and warns when there is
+  none, instead of always running anonymously.
+- Setup reports `zenCredential` and prints the one-time `opencode auth login opencode` step; the generated
+  unit pins `OPENCODE_AUTH_FILE` so the service reads the same store.
+- `OPENCODE_AUTH_FILE` overrides the store path for relocated setups.
+
 ## 0.2.10
 
 Verified by installing from scratch in a clean container with DSH, OpenCode and pnpm all absent:

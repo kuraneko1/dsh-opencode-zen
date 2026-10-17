@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import YAML from 'yaml';
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write';
 import { runtimeDirectory } from './runtime-path.mjs';
+import { opencodeAuthFile, readFreeTierCredential } from './opencode-auth.mjs';
 
 const REF = 'FREEMODELS_API_KEY';
 const PACKAGE = 'dsh-opencode-zen';
@@ -71,8 +72,9 @@ export function mergeCredentials(text, key) {
 }
 
 /** Deterministic unit text; only absolute, quote-safe paths are accepted. */
-export function serviceUnit({ node, script, opencodeDir, opencodeBin, runtimeDir }) {
-  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir], ['opencodeBin', opencodeBin], ['runtimeDir', runtimeDir]]) {
+export function serviceUnit({ node, script, opencodeDir, opencodeBin, runtimeDir, opencodeAuthFile }) {
+  for (const [label, value] of [['node', node], ['script', script], ['opencodeDir', opencodeDir], ['opencodeBin', opencodeBin],
+    ['runtimeDir', runtimeDir], ['opencodeAuthFile', opencodeAuthFile]]) {
     if (typeof value !== 'string' || !value.startsWith('/') || /["\\\r\n%]/.test(value)) fail(`cannot generate a systemd unit from ${label}`);
   }
   const path = [...new Set([opencodeDir, dirname(node), '/usr/local/bin', '/usr/bin', '/bin'])].join(':');
@@ -92,6 +94,7 @@ PrivateTmp=yes
 Environment="PATH=${path}"
 Environment="OPENCODE_BIN=${opencodeBin}"
 Environment="FREEMODELS_RUNTIME_DIR=${runtimeDir}"
+Environment="OPENCODE_AUTH_FILE=${opencodeAuthFile}"
 WorkingDirectory=/tmp
 ExecStart="${node}" "${script}" run
 TimeoutStartSec=180
@@ -154,14 +157,15 @@ async function opencodeBinary(which) {
   return explicit;
 }
 
-async function startRelayService({ baseURL, profileDir, unitDir, run, which }) {
+async function startRelayService({ baseURL, profileDir, unitDir, run, which, authFile }) {
   if (process.platform !== 'linux') fail('--service installs a Linux systemd user unit; start the relay manually on other systems.');
   const opencode = await opencodeBinary(which);
   if (!opencode) fail('opencode was not found on PATH; install OpenCode or set OPENCODE_BIN to its binary.');
   if (!(await which('systemctl'))) fail('systemctl was not found on PATH; start the relay manually instead of --service.');
   const installed = join(profileDir, 'node_modules', PACKAGE, 'supervisor.mjs');
   const script = await lstat(installed).then(stat => stat.isFile() ? installed : join(here, 'supervisor.mjs')).catch(() => join(here, 'supervisor.mjs'));
-  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode), opencodeBin: opencode, runtimeDir: runtimeDirectory() });
+  const content = serviceUnit({ node: process.execPath, script, opencodeDir: dirname(opencode), opencodeBin: opencode,
+    runtimeDir: runtimeDirectory(), opencodeAuthFile: resolve(authFile) });
   const file = join(unitDir, UNIT_NAME);
   await mkdir(unitDir, { recursive: true, mode: 0o755 });
   const before = await readFile(file, 'utf8').catch(() => null);
@@ -195,7 +199,7 @@ async function save(file, before, after) {
 
 export async function integrate({ install = false, service = false, dshHome = process.env.DSH_HOME || join(homedir(), '.dsh'),
   profile = 'web', baseURL = 'http://127.0.0.1:8099/v1', keyFile = join(runtimeDirectory(), 'proxy.key'),
-  fetchImpl = fetch, run = runProcess, which = findExecutable,
+  authFile = opencodeAuthFile(), fetchImpl = fetch, run = runProcess, which = findExecutable,
   unitDir = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user') } = {}) {
   if (service && !install) fail('--service requires --install; it writes a systemd user unit and starts the relay.');
   if (!/^[a-zA-Z0-9_-]+$/.test(profile)) fail('Invalid profile name.');
@@ -207,7 +211,7 @@ export async function integrate({ install = false, service = false, dshHome = pr
   const home = resolve(dshHome), patch = join(home, 'profiles', profile, 'cordis.patch.yml'), credentials = join(home, '.credentials.yaml');
   // Everything that can be checked without a running relay is checked before anything is started.
   if (install) await validateProfile();
-  const unitFile = service ? await startRelayService({ baseURL, profileDir: join(home, 'profiles', profile), unitDir, run, which }) : null;
+  const unitFile = service ? await startRelayService({ baseURL, profileDir: join(home, 'profiles', profile), unitDir, run, which, authFile }) : null;
   const key = process.env[REF] ?? (await existingFile(resolve(keyFile), true))?.trim();
   if (typeof key !== 'string' || key.length < 32 || key.length > 4096 || /\s|[\x00-\x1f\x7f]/.test(key)) {
     fail('A private proxy key of at least 32 non-whitespace characters is required; start the relay (or pass --service) so it creates one.');
@@ -253,8 +257,10 @@ export async function integrate({ install = false, service = false, dshHome = pr
     const plan = await prepare();
     patchChanged = plan.oldPatch !== plan.newPatch; credentialChanged = plan.oldCredentials !== plan.newCredentials;
   }
+  // The free tier refuses anonymous clients, so the adopted credential decides whether this works.
+  const zenCredential = readFreeTierCredential(resolve(authFile)) !== null;
   return { mode: install ? 'installed' : 'dry-run', profile, provider: 'opencode-zen', models: models.length,
-    excluded: catalog.data.length - models.length, patchChanged, credentialChanged, defaultModelChanged: false,
+    excluded: catalog.data.length - models.length, patchChanged, credentialChanged, defaultModelChanged: false, zenCredential,
     relay: unitFile ? `systemd:${UNIT_NAME}` : 'external', ...(unitFile ? { unitFile } : {}) };
 }
 
@@ -280,7 +286,14 @@ Requires the package to be installed in the profile first, for example:
       options[names[arg]] = process.argv[++i];
     }
   }
-  console.log(JSON.stringify(await integrate(options), null, 2));
+  const result = await integrate(options);
+  console.log(JSON.stringify(result, null, 2));
+  if (!result.zenCredential) {
+    console.log("");
+    console.log("note: no stored OpenCode credential was found. The free tier refuses anonymous clients with");
+    console.log("      403 FreeTierError, so run 'opencode auth login opencode' once (this stores a credential");
+    console.log("      for the 'opencode' provider only) and then restart the relay.");
+  }
 }
 // npm/pnpm bin shims are symlinks, so compare real paths: a plain resolve() would make this a silent no-op.
 function isEntryPoint() {

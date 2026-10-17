@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runtimeDirectory, stateToken } from './runtime-path.mjs';
+import { opencodeAuthFile, readFreeTierCredential } from './opencode-auth.mjs';
 import { opencodeModelOverrides } from './zen-limits.mjs';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
@@ -118,7 +119,12 @@ async function run() {
   try {
     for (const dir of ['oc-home', 'oc-config', 'oc-config/opencode', 'oc-data', 'oc-data/opencode', 'oc-cache', 'oc-state', 'oc-workdir']) privateDir(path.join(runtime, dir));
     // Zen free access needs no provider key; never read or copy the user's credentials.
-    privateFile(path.join(runtime, 'oc-data/opencode/auth.json'), '{}');
+    // Adopt only the operator's own free-tier provider entry, never their other credentials.
+    const adopted = readFreeTierCredential(opencodeAuthFile());
+    privateFile(path.join(runtime, 'oc-data/opencode/auth.json'), JSON.stringify(adopted ?? {}));
+    console.error(adopted === null
+      ? "warning: no stored OpenCode credential; the free tier refuses anonymous clients, so run 'opencode auth login opencode' once and restart"
+      : 'supervised: adopted the stored OpenCode credential for the free tier');
     const picked = names => Object.fromEntries(names.filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]));
     const common = picked(['PATH', 'LANG', 'LC_ALL', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUEST_TIMEOUT_MS', 'STALL_TIMEOUT_MS']);
     const baseEnv = { ...common, HOME: path.join(runtime, 'oc-home'), FREEMODELS_RUNTIME_DIR: runtime,

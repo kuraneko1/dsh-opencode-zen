@@ -1,4 +1,4 @@
-# Security and compatibility notes — 0.2.10
+# Security and compatibility notes — 0.2.11
 
 This is the **Zen-only native-plugin revision**, superseding the local multi-provider prototype. The supported path is [the native plugin](<index.mjs>), [relay](<server.mjs>), [OpenCode fetch hook](<opencode-plugin.mjs>), [bounded bridge](<opencode-bridge.mjs>) and [supervisor](<supervisor.mjs>). No OpenRouter, NVIDIA or local route is implemented.
 
@@ -87,12 +87,19 @@ relay reports 10 models. Three defects were found and fixed on the way: an exist
 (although `dsh plugin add` creates one), a missing pnpm only produced a one-line manager notice, and the
 `SERVICE=0` path ran setup without a running relay and failed.
 
-**What did not work, and is not ours to fix:** every model request returned `403 FreeTierError`
-("OpenCode's free tier can only be used from within OpenCode") — from the relay, and **identically from a plain
-`opencode run` in the same container with no config, no plugin and no proxy**, on both 1.19.3 and the host's
-1.19.0. The provider now refuses the anonymous free lane even for genuine OpenCode clients, which matches the
-public issue reports ("free usage exceeded", the anonymous lane blocked since ~2026-09-17). This repository
-does not impersonate the client or invent tools to get around it; the upstream error stays visible.
+**What did not work, and why:** every model request returned `403 FreeTierError`. The same container with a
+plain `opencode run` — no config, no plugin, no proxy — returns the identical error on 1.19.3 and on the host's
+1.19.0, so it is not this code. Upstream issue #52917 diagnoses the message as **a missing stored OpenCode
+(Console) credential**, not an origin restriction, and names `opencode auth login opencode` as the fix, which
+other reporters confirm. On this machine `opencode auth list` had no `opencode` entry at all, and the relay's
+dedicated client was explicitly anonymous (`{}`). Earlier the same day the lane had answered this relay
+anonymously, so the provider tightened it during the session.
+
+Reproducing the fix locally needs a real account, so it stays unverified here. A synthetic credential of either
+shape (`api` and `oauth`) did **not** change the error, which is consistent with the server validating the
+credential before serving rather than merely requiring its presence, but it means the login itself is the one
+step this repository cannot test. The relay now adopts only the `opencode` entry from the operator's store
+(never any other provider) and warns when there is none; it still refuses to impersonate the client.
 
 ## Context truncation
 
@@ -104,7 +111,7 @@ A related provider behaviour: a request whose only tool has an empty parameter s
 
 ## Limits / not checked
 
-- **The upstream free lane can be refused regardless of this code.** Verified with a plain OpenCode client on two versions and two machines; see the clean-room section. Nothing here can or should bypass that.
+- **The upstream free lane needs a stored OpenCode credential.** Confirmed for a plain OpenCode client on two versions and two machines; the relay adopts only that one entry and cannot do more. Nothing here impersonates the client.
 - **Port ownership is not authenticated.** Setup sends the relay bearer to whatever holds `127.0.0.1:8099`, and the supervisor's free-port check closes the socket before the client spawns, so a hostile same-user process that wins the race could receive the bearer or the OpenCode Basic password. Both need local code execution as the same user.
 - **The private OpenCode config directory is reused across runs.** The resolved-config checks above pin the fields that matter, but a freshly written config is not recreated from scratch every start.
 - **The child environment is best-effort.** An allowlist limits what this code forwards, but a launcher wrapper ahead of the real binary can add variables of its own (now reported by name). If a host keeps secrets in such a wrapper, that process sees them. `OPENCODE_BIN` or a clean `PATH` avoids the wrapper entirely.

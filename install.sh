@@ -3,12 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/install.sh | bash
 #
-# Env overrides: PROFILE (web) VERSION (0.2.10) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
+# Env overrides: PROFILE (web) VERSION (0.2.11) SERVICE (1) LAUNCHER (auto: dsh then rdsh) TARBALL
 set -euo pipefail
 
 PACKAGE="dsh-opencode-zen"
 PROFILE="${PROFILE:-web}"
-VERSION="${VERSION:-0.2.10}"
+VERSION="${VERSION:-0.2.11}"
 SERVICE="${SERVICE:-1}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 MANIFEST="$DSH_HOME/profiles/$PROFILE/package.json"

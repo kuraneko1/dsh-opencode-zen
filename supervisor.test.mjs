@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COPIED = ['supervisor.mjs', 'server.mjs', 'opencode-bridge.mjs', 'opencode-plugin.mjs', 'runtime-path.mjs', 'zen-limits.mjs'];
+const COPIED = ['supervisor.mjs', 'server.mjs', 'opencode-bridge.mjs', 'opencode-plugin.mjs', 'runtime-path.mjs', 'zen-limits.mjs', 'opencode-auth.mjs'];
 const FAKE_OC = `#!${process.execPath}
 import fs from 'node:fs';
 import path from 'node:path';
@@ -173,10 +173,13 @@ test('supervisor isolates HOME/env/auth, becomes actually ready and SIGTERM clea
   // Long sessions must not be silently truncated at the published 200k client limit.
   assert.equal(observed.config.provider.opencode.models['deepseek-v4.1-flash-free'].limit.context, 1000000);
   assert.equal(observed.config.provider.opencode.models['glm-5.3-flash-free'].limit.context, 1000000);
-  assert.deepEqual(observed.authKeys, []);
+  // Only the free-tier provider's entry is adopted; the fixture's openrouter/unrelated/otherOauth
+  // credentials must not appear in the relay's private store.
+  assert.deepEqual(observed.authKeys, ['opencode']);
   assert.equal(observed.authMode, 0o600);
   const copiedAuth = path.join(f.runtime, 'oc-data/opencode/auth.json');
-  assert.deepEqual(JSON.parse(fs.readFileSync(copiedAuth)), {});
+  // Exactly the free-tier entry, byte for byte, and nothing else from the operator's store.
+  assert.deepEqual(JSON.parse(fs.readFileSync(copiedAuth)), { opencode: f.auth.opencode });
   for (const name of ['proxy.key', 'opencode.key', 'stack.json']) assert.equal(fs.statSync(path.join(f.runtime, name)).mode & 0o777, 0o600);
   assert.equal(fs.statSync(f.runtime).mode & 0o777, 0o700);
   const key = fs.readFileSync(path.join(f.runtime, 'proxy.key'), 'utf8').trim();
@@ -281,4 +284,21 @@ test('a planted endpoint override or extra provider is refused as a failed isola
     assert.ok(owner.output().includes(expected), `${marker} must be named in the failure`);
     assert.equal(fs.existsSync(path.join(f.runtime, 'oc-data/opencode/auth.json')), false);
   }
+});
+
+test('a store without the free-tier entry stays anonymous, and other providers are never adopted', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  // Keep the operator's other credentials but drop the free-tier provider's entry.
+  const store = path.join(f.home, '.local/share/opencode/auth.json');
+  const source = JSON.parse(fs.readFileSync(store));
+  delete source.opencode;
+  fs.writeFileSync(store, JSON.stringify(source), { mode: 0o600 });
+  const owner = f.start();
+  await owner.waitFor('warning: no stored OpenCode credential');
+  await owner.waitFor('supervised proxy:');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.runtime, 'oc-data/opencode/auth.json'))), {});
+  const observed = JSON.parse(fs.readFileSync(path.join(f.root, 'oc-observation.json')));
+  assert.deepEqual(observed.authKeys, []);
+  owner.process.kill('SIGTERM');
+  await bounded(owner.finished, 'anonymous supervisor shutdown');
 });
