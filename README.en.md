@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.12/dsh-opencode-zen-0.2.12.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.13/dsh-opencode-zen-0.2.13.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -70,6 +70,11 @@ positional is parsed as a URL, so it fails with `fetch() URL is invalid`. Pass `
 Of everything stored, the relay adopts **only the `opencode` (Zen/Console) entry** for its dedicated client;
 credentials for other providers are never copied. Without a login it starts anonymously and warns.
 
+Context: the anonymous lane used to work without any credential, and the provider has since closed it. The
+`opencode` provider takes an **API key** (`OPENCODE_API_KEY`), not OAuth — the documented path is to sign in at
+[opencode.ai/auth](https://opencode.ai/auth) and copy a key (the sign-up may ask for billing details; the free
+models are priced at 0).
+
 ## Good to know
 
 - **Long sessions**: `deepseek-v4.1-flash-free` and `glm-5.3-flash-free` are declared at 1M because they
@@ -78,7 +83,9 @@ credentials for other providers are never copied. Without a login it starts anon
   real tools, so normal use passes.
 - **A fresh profile** may ask you to approve build scripts for DSH's own dependencies (`pnpm approve-builds`).
   This plugin has no build scripts.
-- Authenticated loopback only, and **no Zen API key is needed** — only a generated local relay token.
+- Authenticated loopback only. A **Zen credential is now required** (the API key stored by
+  `opencode auth login --provider opencode`); the relay adopts that one entry and nothing else. The free models
+  themselves cost 0.
 - No guarantee of perpetual free access, of every model, or of future DSH versions.
 
 ### Advanced

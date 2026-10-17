@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.13
+
+- Correct a claim the provider invalidated: a Zen credential **is** required now. The anonymous lane that this
+  plugin originally relied on has been closed, and the `opencode` provider's credential is an API key
+  (`OPENCODE_API_KEY`, from opencode.ai/auth), not OAuth. READMEs and AUDIT.md say so, including that the free
+  models themselves cost 0 and that the relay adopts only that one entry.
+
 ## 0.2.12
 
 - Correct the documented login command to `opencode auth login --provider opencode`. The positional form quoted

@@ -1,4 +1,4 @@
-# Security and compatibility notes — 0.2.12
+# Security and compatibility notes — 0.2.13
 
 This is the **Zen-only native-plugin revision**, superseding the local multi-provider prototype. The supported path is [the native plugin](<index.mjs>), [relay](<server.mjs>), [OpenCode fetch hook](<opencode-plugin.mjs>), [bounded bridge](<opencode-bridge.mjs>) and [supervisor](<supervisor.mjs>). No OpenRouter, NVIDIA or local route is implemented.
 
@@ -95,7 +95,9 @@ other reporters confirm. On this machine `opencode auth list` had no `opencode` 
 dedicated client was explicitly anonymous (`{}`). Earlier the same day the lane had answered this relay
 anonymously, so the provider tightened it during the session.
 
-Reproducing the fix locally needs a real account, so it stays unverified here. A synthetic credential of either
+The provider's own documentation makes the same point from the other side: Zen is optional and account-based,
+and the `opencode` provider's credential is an API key (`OPENCODE_API_KEY`), not OAuth — so the free models are
+no longer reachable anonymously. Reproducing the fix locally needs a real account, so it stays unverified here. A synthetic credential of either
 shape (`api` and `oauth`) did **not** change the error, which is consistent with the server validating the
 credential before serving rather than merely requiring its presence, but it means the login itself is the one
 step this repository cannot test. The relay now adopts only the `opencode` entry from the operator's store

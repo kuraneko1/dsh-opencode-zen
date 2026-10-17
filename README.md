@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.12/dsh-opencode-zen-0.2.12.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.13/dsh-opencode-zen-0.2.13.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 
@@ -68,12 +68,16 @@ systemctl --user restart dsh-opencode-zen.service   # ログイン後に中継�
 中継は保存された資格情報のうち **`opencode`（Zen/Console）の1件だけ** を専用クライアントに渡します。
 他のプロバイダの資格情報はコピーしません。ログインしていない場合は匿名のまま起動し、警告を出します。
 
+補足: 以前は匿名（資格情報なし）でも無料枠が使えましたが、提供元が匿名レーンを締めました。`opencode` プロバイダの
+資格情報はOAuthではなく**APIキー**（`OPENCODE_API_KEY`）で、公式手順では[opencode.ai/auth](https://opencode.ai/auth)で
+サインインしてキーを取得します（サインイン時に請求情報の登録を求められる場合があります。無料モデルは cost 0 です）。
+
 ## 知っておくこと
 
 - **長いセッション**: `deepseek-v4.1-flash-free` と `glm-5.3-flash-free` は実測1M（999,312 / 1,047,653トークン）として宣言します。他モデルは公開値のまま
 - **ツールなしの単発要求**は提供元が403 `FreeTierError` を返します。DSHは実際のツールを送るので通常利用は通ります
 - **空のプロファイル**ではDSH自身の依存のビルド承認を求められることがあります（`pnpm approve-builds`）。このプラグインにビルドスクリプトはありません
-- 認証付きloopback限定。**ZenのAPIキーは不要**です（中継トークンだけを生成します）
+- 認証付きloopback限定。**Zenの資格情報（`opencode auth login --provider opencode` で保存するAPIキー）が必要**です。中継はそれを `opencode` の1件だけ採用します（無料モデル自体は cost 0 で課金対象外）
 - 無料枠の継続・全モデル・将来バージョンは保証しません
 
 詳しい制約は [AUDIT.md](<AUDIT.md>)、変更履歴は [CHANGELOG.md](<CHANGELOG.md>)。
