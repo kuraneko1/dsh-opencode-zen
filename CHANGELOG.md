@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.22
+
+**The relay now drives an OpenCode 2.x client.** 2.x moved its HTTP API under `/api/*`, loads local
+plugins from a directory instead of a module URL, and never consults the 1.x
+`provider.options.fetch` hook. With a 2.x binary the old code therefore crashed in a restart loop on
+`/config`, which 2.x answers with its SPA HTML.
+
+- The supervisor reads `opencode --version` before spawning and configures the client in the shape
+  that version reads (`plugin`/`provider` for 1.x, `plugins`/`providers` for 2.x); readiness and
+  isolation verification use the matching endpoints (`/global/health` + `/config` against
+  `/api/info` + `/api/config` + `/api/model`).
+- The 2.x bridge is a client-side plugin (`client-v2/`) loaded from a directory. It carries the
+  relay's single-use capability in the prompt metadata, swaps the outgoing provider request body in
+  `session.hook('http.request')`, and hands the real upstream response back to the relay in
+  `session.hook('http.response')` while answering OpenCode with a canned stream — so OpenCode never
+  sees or executes the caller's tool calls, exactly as on 1.x.
+- 2.x has no config-level bridge marker, so the plugin announces itself to
+  `/internal/bridge/hello`; the relay publishes Zen models only while an announcement is live, and a
+  late one republishes the catalog.
+- 1.x support is unchanged: the generation is detected before the client starts and the old plugin
+  and endpoints are still used for it.
+
+Measured on OpenCode 2.0.32 with Node 22: the relay listed all ten free Zen models and five
+consecutive `zen-doctor` probes answered `200` through the bridge.
+
 ## 0.2.21
 
 The standalone relay got tool-less support in its 0.1.1; the DSH plugin never did, because a DSH agent

@@ -1,0 +1,10 @@
+{
+  "name": "dsh-opencode-zen-bridge",
+  "version": "0.2.22",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  }
+}

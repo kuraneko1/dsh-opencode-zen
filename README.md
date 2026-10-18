@@ -14,6 +14,10 @@ OpenCode Zen の**無料モデル専用**のDSHプラグイン。素の `dsh` �
 | Linux / Node 22.19以上 | 中継に必要（systemdは任意） |
 | `pnpm` | プラグインマネージャが使用。`install.sh` は `corepack` で自動有効化を試み、無理なら `npm i -g pnpm` を案内します |
 
+OpenCodeは**1.19系と2.x系の両方**に対応します。どちらが入っているかは起動時に `opencode --version` で判別し、
+そのバージョンが読む形の設定（1.xは `plugin`/`provider`、2.xは `plugins`/`providers`）と専用プラグインを渡します。
+2.xでは設定ファイル側にブリッジの目印が無いため、専用プラグインが中継へ名乗り出ます（`/internal/bridge/hello`）。
+
 OpenCodeを入れたくない場合、このプラグインは使えません。DSH標準のプロバイダ（`deepseek-official` や `opencode-go` など）を使ってください。
 
 プロファイルが無い環境では、`install.sh` が `dsh plugin` にプロファイル作成を任せます（手動準備は不要）。
@@ -45,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 手動で入れる場合:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.21/dsh-opencode-zen-0.2.21.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.22/dsh-opencode-zen-0.2.22.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 

@@ -12,6 +12,8 @@ import { runtimeDirectory } from './runtime-path.mjs';
 
 // Unlike $, the final assertion does not accept a trailing newline.
 const MODEL_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*(?![\s\S])/;
+// OpenCode 2.x names the AI SDK provider package a model is served by.
+const V2_CHAT_PACKAGE = '@opencode/ai/providers/openai-compatible';
 const ZEN_MODEL = /^zen\/[a-zA-Z0-9][a-zA-Z0-9._-]*(?![\s\S])/;
 const FIELDS = new Set(['model', 'messages', 'tools', 'tool_choice', 'stream', 'stream_options',
   'temperature', 'top_p', 'max_tokens', 'max_completion_tokens', 'reasoning_effort', 'reasoning',
@@ -97,7 +99,7 @@ function zeroPrices(value, depth = 0) {
 }
 
 export function createProxy({ apiKey, ocURL = 'http://127.0.0.1:4096', ocPassword = '',
-  timeoutMs = 300000, maxBytes = 16 * 1024 * 1024, maxConcurrent = 4, log = () => {} }) {
+  timeoutMs = 300000, maxBytes = 16 * 1024 * 1024, maxConcurrent = 4, log = () => {}, generation = 'v1' }) {
   if (typeof apiKey !== 'string' || apiKey.length < 32 || apiKey.length > 4096 || /\s|[\x00-\x1f\x7f]/.test(apiKey)) throw new Error('FREEMODELS_API_KEY must contain 32..4096 non-whitespace characters');
   const upstreamURL = new URL(ocURL);
   if (upstreamURL.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(upstreamURL.hostname)
@@ -116,13 +118,46 @@ export function createProxy({ apiKey, ocURL = 'http://127.0.0.1:4096', ocPasswor
   // A 403 from the upstream is the free-tier refusal; the count is what the supervisor watches to
   // decide whether the dedicated client is stuck on a network path the provider no longer accepts.
   const refusals = { count: 0, lastAt: null };
-  const bridge = createBridge({ oc, timeoutMs, log, onUpstreamStatus: status => {
+  // 2.x has no config-level bridge marker: the client-side plugin announces itself instead, and a
+  // client that dies takes the announcement with it at the next catalog refresh.
+  let bridgeHello = false;
+  const bridge = createBridge({ oc, timeoutMs, log, generation, onUpstreamStatus: status => {
     if (status === 403) { refusals.count++; refusals.lastAt = new Date().toISOString(); }
+  }, onBridgeHello: () => {
+    bridgeHello = true;
+    // Model entries carry the bridge flag, so a late hello has to republish the catalog.
+    void refresh().catch(() => {});
   } });
   function refresh() {
     if (refreshing) return refreshing;
     refreshing = (async () => {
       const next = new Map();
+      if (generation === 'v2') {
+        try {
+          const catalog = await oc('/api/model');
+          health.opencode = true;
+          health.bridge = bridgeHello;
+          for (const m of catalog.data || []) {
+            if (m?.providerID !== 'opencode') continue;
+            const id = m.id ?? m.modelID;
+            if (typeof id !== 'string' || !MODEL_ID.test(id) || (m.modelID !== undefined && m.modelID !== id)) continue;
+            // Published free models are the only ones this relay offers; anything priced is skipped.
+            if (!zeroPrices(m.cost)) continue;
+            const chat = m.package === V2_CHAT_PACKAGE;
+            next.set(`zen/${id}`, { id, route: 'zen', providerID: 'opencode', chat,
+              tools: health.bridge && chat && m.capabilities?.tools !== false,
+              contextWindow: m.limit?.context, maxTokens: m.limit?.output,
+              reasoningEfforts: (m.variants || []).map(variant => variant.id).filter(name => typeof name === 'string') });
+          }
+        } catch {
+          health.opencode = false;
+          health.bridge = false;
+          log('catalog refresh failed; OpenCode routes disabled');
+        }
+        models = next;
+        health.checkedAt = new Date().toISOString();
+        return;
+      }
       try {
         const [providers, config] = await Promise.all([oc('/config/providers'), oc('/config')]);
         health.opencode = true;
@@ -219,6 +254,7 @@ if (isEntryPoint()) {
   const port = Number(process.env.PORT || 8099);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid PORT');
   const proxy = createProxy({ apiKey, ocPassword, ocURL: process.env.OPENCODE_URL || 'http://127.0.0.1:4096',
+    generation: process.env.OPENCODE_GENERATION === 'v2' ? 'v2' : 'v1',
     timeoutMs: Number(process.env.REQUEST_TIMEOUT_MS || 300000), log: (...args) => console.error(`${new Date().toISOString()} ${format(...args)}`) });
   await proxy.refresh();
   proxy.server.listen(port, '127.0.0.1', () => {

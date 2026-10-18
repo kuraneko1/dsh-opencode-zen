@@ -7,7 +7,7 @@ import { runtimeDirectory, stateToken } from './runtime-path.mjs';
 import { opencodeAuthFile, readFreeTierCredential } from './opencode-auth.mjs';
 import { opencodeModelOverrides } from './zen-limits.mjs';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -55,6 +55,12 @@ function removeExact(file) {
     fs.unlinkSync(file);
   }
 }
+/** 2.x hands back config documents with normalized key order; compare them structurally. */
+function sortDeep(value) {
+  if (Array.isArray(value)) return value.map(sortDeep);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, sortDeep(value[key])]));
+}
 function ticks(pid) {
   const text = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
   return text.slice(text.lastIndexOf(')') + 2).split(' ')[19];
@@ -76,6 +82,17 @@ function port(value, fallback) {
   if (!Number.isSafeInteger(n) || n < 1024 || n > 65535) throw new Error('ports must be integers in 1024..65535');
   return n;
 }
+// Which client API the installed OpenCode speaks. The version string is the only thing available
+// before the client starts, and the config key names differ between the two: 1.x takes `plugin`
+// (a module URL) and `provider`, 2.x takes `plugins` (directories) and `providers`.
+function clientGeneration(command) {
+  let output = '';
+  try { output = execFileSync(command, ['--version'], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'] }); }
+  catch { return 'v1'; }
+  const match = /(\d+)\.\d+\.\d+/.exec(output);
+  return match !== null && Number(match[1]) >= 2 ? 'v2' : 'v1';
+}
+
 async function freePort(port) {
   await new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -130,11 +147,27 @@ async function run() {
     console.error(adopted === null
       ? "warning: no stored OpenCode credential; if the provider answers 403 FreeTierError, run 'opencode auth login --provider opencode' once and restart"
       : 'supervised: adopted the stored OpenCode credential for the free tier');
+    const requested = process.env.OPENCODE_BIN;
+    if (requested !== undefined && requested !== '') {
+      // Same rule as setup: an explicit binary must be an absolute, executable file.
+      if (!path.isAbsolute(requested)) throw new Error('OPENCODE_BIN must be an absolute path');
+      const target = fs.statSync(requested, { throwIfNoEntry: false });
+      if (!target?.isFile() || (target.mode & 0o111) === 0) throw new Error(`OPENCODE_BIN is not an executable file: ${requested}`);
+    }
+    const generation = clientGeneration(requested || 'opencode');
+    console.error(`supervised: the installed OpenCode speaks the ${generation === 'v2' ? '2.x' : '1.x'} API`);
     const picked = names => Object.fromEntries(names.filter(name => process.env[name] !== undefined).map(name => [name, process.env[name]]));
-    const common = picked(['PATH', 'LANG', 'LC_ALL', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUEST_TIMEOUT_MS', 'STALL_TIMEOUT_MS']);
+    const common = picked(['PATH', 'LANG', 'LC_ALL', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUEST_TIMEOUT_MS', 'STALL_TIMEOUT_MS', 'FREEMODELS_BRIDGE_DEBUG']);
     const baseEnv = { ...common, HOME: path.join(runtime, 'oc-home'), FREEMODELS_RUNTIME_DIR: runtime,
-      FREEMODELS_API_KEY: apiKey, OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode' };
-    const config = { plugin: [pathToFileURL(path.join(here, 'opencode-plugin.mjs')).href],
+      FREEMODELS_API_KEY: apiKey, OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode',
+      OPENCODE_GENERATION: generation };
+    const config = generation === 'v2' ? {
+      // 2.x loads local plugins from a directory and names model limits under `providers`.
+      $schema: 'https://opencode.ai/config.json',
+      plugins: [path.join(here, 'client-v2')],
+      update: 'disable', share: 'disabled', compaction: { auto: false },
+      providers: { opencode: { models: opencodeModelOverrides() } },
+    } : { plugin: [pathToFileURL(path.join(here, 'opencode-plugin.mjs')).href],
       // No permission deny anywhere: measured 2026-10-17, denying shell/read makes the upstream
       // free-tier gate answer 403 for every request. Nothing can execute anyway, because the relay
       // sends `tools: {}`; the caller's tools are re-attached only to the upstream request body.
@@ -150,13 +183,6 @@ async function run() {
       OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_EXPERIMENTAL_NATIVE_LLM: 'false',
       FREEMODELS_BRIDGE_URL: `http://127.0.0.1:${proxyPort}`,
     };
-    const requested = process.env.OPENCODE_BIN;
-    if (requested !== undefined && requested !== '') {
-      // Same rule as setup: an explicit binary must be an absolute, executable file.
-      if (!path.isAbsolute(requested)) throw new Error('OPENCODE_BIN must be an absolute path');
-      const target = fs.statSync(requested, { throwIfNoEntry: false });
-      if (!target?.isFile() || (target.mode & 0o111) === 0) throw new Error(`OPENCODE_BIN is not an executable file: ${requested}`);
-    }
     let opencode;
     const spawnOpencode = () => {
       opencode = start(requested || 'opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(ocPort)], opencodeEnv, path.join(runtime, 'oc-workdir'));
@@ -167,10 +193,20 @@ async function run() {
     // Bound by wall-clock, not by a fixed number of attempts: on a cold cache the client fetches
     // its model metadata first and can ignore a short probe for a minute or more (measured in a
     // fresh container, where the old 120-attempt loop gave up while the server was still working).
+    const healthPath = generation === 'v2' ? '/api/info' : '/global/health';
+    const clientReady = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:${ocPort}${healthPath}`, { headers: { authorization }, signal: AbortSignal.timeout(3000), redirect: 'error' });
+        if (!response.ok) return false;
+        const body = await response.json().catch(() => null);
+        // A socket that answers is not ready: 2.x serves its SPA for unknown paths, so the body decides.
+        return generation === 'v2' ? typeof body?.version === 'string' : body?.healthy === true;
+      } catch { return false; }
+    };
     let ready = false;
     const deadline = Date.now() + 150_000;
     while (!stopping && Date.now() < deadline) {
-      try { ready = (await fetch(`http://127.0.0.1:${ocPort}/global/health`, { headers: { authorization }, signal: AbortSignal.timeout(3000), redirect: 'error' })).ok; } catch { /* Still starting. */ }
+      ready = await clientReady();
       if (ready) break;
       await delay(500);
     }
@@ -182,33 +218,55 @@ async function run() {
     const readResolved = async () => {
       const until = Date.now() + 60_000;
       let last;
+      const path = generation === 'v2' ? '/api/config' : '/config';
       while (Date.now() < until) {
-        try { return await fetch(`http://127.0.0.1:${ocPort}/config`, { headers: { authorization }, signal: AbortSignal.timeout(5000), redirect: 'error' }).then(r => r.json()); }
+        try { return await fetch(`http://127.0.0.1:${ocPort}${path}`, { headers: { authorization }, signal: AbortSignal.timeout(5000), redirect: 'error' }).then(r => r.json()); }
         catch (error) { last = error; await delay(1000); }
       }
-      throw last ?? new Error('dedicated OpenCode did not answer /config');
+      throw last ?? new Error('dedicated OpenCode did not answer its config endpoint');
     };
     const resolved = await readResolved();
-    if (resolved.plugin?.length !== 1 || resolved.plugin[0] !== config.plugin[0]) {
-      throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify({ pluginCount: resolved.plugin?.length,
-        pluginMatches: resolved.plugin?.[0] === config.plugin[0] })}`);
+    if (generation === 'v2') {
+      // 2.x reports every configuration source instead of the merged document: the inline document
+      // has to be ours, and no directory source may smuggle in another document or plugin.
+      const same = (a, b) => JSON.stringify(sortDeep(a)) === JSON.stringify(sortDeep(b));
+      const documents = resolved.filter(source => source?.info !== undefined);
+      const matches = documents.length === 1 && same(documents[0].info, config);
+      const foreign = [];
+      for (const source of resolved) {
+        if (typeof source?.path !== 'string') continue;
+        for (const name of ['opencode.json', 'opencode.jsonc', 'config.json']) {
+          const file = path.join(source.path, name);
+          if (fs.existsSync(file)) foreign.push(file);
+        }
+        for (const name of ['plugin', 'plugins']) {
+          const dir = path.join(source.path, name);
+          if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) foreign.push(dir);
+        }
+      }
+      if (!matches || foreign.length > 0) throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify({ documentMatches: matches, documents: documents.length, foreign })}`);
+    } else {
+      if (resolved.plugin?.length !== 1 || resolved.plugin[0] !== config.plugin[0]) {
+        throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify({ pluginCount: resolved.plugin?.length,
+          pluginMatches: resolved.plugin?.[0] === config.plugin[0] })}`);
+      }
+      // Pin everything a launcher or a planted runtime file could have added: an extra enabled
+      // provider, MCP server, agent, endpoint override or share setting would move traffic elsewhere.
+      const pinned = {
+        onlyZenProvider: Array.isArray(resolved.enabled_providers) && resolved.enabled_providers.length === 1 && resolved.enabled_providers[0] === 'opencode',
+        noExtraProviders: Object.keys(resolved.provider ?? {}).join() === 'opencode',
+        noEndpointOverride: Object.keys(resolved.provider?.opencode?.options ?? {}).length === 0,
+        noMcpServers: Object.keys(resolved.mcp ?? {}).length === 0,
+        onlyBridgeAgent: Object.keys(resolved.agent ?? {}).join() === 'dsh-bridge',
+        shareDisabled: resolved.share === 'disabled',
+        autoupdateOff: resolved.autoupdate === false,
+      };
+      const unpinned = Object.entries(pinned).filter(([, ok]) => ok !== true);
+      if (unpinned.length > 0) throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify(Object.fromEntries(unpinned))}`);
     }
-    // Pin everything a launcher or a planted runtime file could have added: an extra enabled
-    // provider, MCP server, agent, endpoint override or share setting would move traffic elsewhere.
-    const pinned = {
-      onlyZenProvider: Array.isArray(resolved.enabled_providers) && resolved.enabled_providers.length === 1 && resolved.enabled_providers[0] === 'opencode',
-      noExtraProviders: Object.keys(resolved.provider ?? {}).join() === 'opencode',
-      noEndpointOverride: Object.keys(resolved.provider?.opencode?.options ?? {}).length === 0,
-      noMcpServers: Object.keys(resolved.mcp ?? {}).length === 0,
-      onlyBridgeAgent: Object.keys(resolved.agent ?? {}).join() === 'dsh-bridge',
-      shareDisabled: resolved.share === 'disabled',
-      autoupdateOff: resolved.autoupdate === false,
-    };
-    const unpinned = Object.entries(pinned).filter(([, ok]) => ok !== true);
-    if (unpinned.length > 0) throw new Error(`dedicated OpenCode isolation verification failed: ${JSON.stringify(Object.fromEntries(unpinned))}`);
     start(process.execPath, [path.join(here, 'server.mjs')], { ...baseEnv, PORT: String(proxyPort), OPENCODE_URL: `http://127.0.0.1:${ocPort}` });
     ready = false;
-    for (let i = 0; i < 60 && !stopping; i++) {
+    for (let i = 0; i < 240 && !stopping; i++) {
       try {
         const health = await fetch(`http://127.0.0.1:${proxyPort}/health`, { signal: AbortSignal.timeout(1000), redirect: 'error' }).then(r => r.json());
         ready = health.upstreams?.opencode === true && health.upstreams?.bridge === true;
@@ -246,7 +304,7 @@ async function run() {
           const deadline = Date.now() + 150_000;
           let up = false;
           while (!stopping && Date.now() < deadline) {
-            try { up = (await fetch(`http://127.0.0.1:${ocPort}/global/health`, { headers: { authorization }, signal: AbortSignal.timeout(3000), redirect: 'error' })).ok; } catch { /* Still starting. */ }
+            up = await clientReady();
             if (up) break;
             await delay(500);
           }
