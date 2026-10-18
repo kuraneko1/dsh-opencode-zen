@@ -218,14 +218,25 @@ export async function integrate({ install = false, service = false, dshHome = pr
   if (typeof key !== 'string' || key.length < 32 || key.length > 4096 || /\s|[\x00-\x1f\x7f]/.test(key)) {
     fail('A private proxy key of at least 32 non-whitespace characters is required; start the relay (or pass --service) so it creates one.');
   }
-  let response;
-  try { response = await fetchImpl(`${baseURL}/models`, { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(10000) }); }
-  catch { fail('Could not fetch the authenticated proxy catalog; is the relay running? Redirects are refused.'); }
-  if (!response.ok) fail(`Proxy catalog returned HTTP ${response.status}; no files changed.`);
-  let catalog;
-  try { catalog = await response.json(); } catch { fail('Proxy catalog is not JSON.'); }
-  if (!Array.isArray(catalog.data) || catalog.data.length > 10000) fail('Invalid proxy catalog.');
-  const models = catalog.data.filter(m => m?.route === 'zen' && typeof m.id === 'string' && /^zen\/[^\s?#]+$/.test(m.id) && m.chat === true && m.tools === true);
+  // A relay this process did not start (install.sh's background path, or a tunnel to another host)
+  // answers as soon as it listens, while its dedicated client may still be loading the bridge plugin:
+  // its catalog is then empty, or lists every Zen model as tool-less. Wait that out — but a catalog
+  // with unrelated routes is a real error and fails immediately.
+  const catalogDeadline = Date.now() + 60_000;
+  let catalog, models;
+  for (;;) {
+    let response;
+    try { response = await fetchImpl(`${baseURL}/models`, { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(10000) }); }
+    catch { fail('Could not fetch the authenticated proxy catalog; is the relay running? Redirects are refused.'); }
+    if (!response.ok) fail(`Proxy catalog returned HTTP ${response.status}; no files changed.`);
+    try { catalog = await response.json(); } catch { fail('Proxy catalog is not JSON.'); }
+    if (!Array.isArray(catalog.data) || catalog.data.length > 10000) fail('Invalid proxy catalog.');
+    models = catalog.data.filter(m => m?.route === 'zen' && typeof m.id === 'string' && /^zen\/[^\s?#]+$/.test(m.id) && m.chat === true && m.tools === true);
+    if (models.length) break;
+    const warming = catalog.data.length === 0 || catalog.data.some(m => m?.route === 'zen');
+    if (!warming || Date.now() >= catalogDeadline) break;
+    await new Promise(ok => setTimeout(ok, 1000));
+  }
   if (!models.length) fail('No tool-capable OpenCode Zen Chat models are available.');
   const config = { proxyURL: baseURL, apiKeyEnv: REF };
   async function validateProfile() {
