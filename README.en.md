@@ -14,6 +14,11 @@ A DSH plugin for **OpenCode Zen free models only**. Works with plain `dsh` and t
 | Linux / Node 22.19+ | For the relay (systemd is optional) |
 | `pnpm` | Used by the plugin manager. `install.sh` tries to enable it through `corepack`, otherwise it tells you to run `npm i -g pnpm` |
 
+Both **OpenCode 1.19.x and 2.x** are supported: the supervisor reads `opencode --version` before it
+starts the client and hands it the configuration that version reads (`plugin`/`provider` for 1.x,
+`plugins`/`providers` for 2.x) together with the matching bridge plugin. 2.x has no config-level
+bridge marker, so the client-side plugin announces itself to the relay (`/internal/bridge/hello`).
+
 Without OpenCode this plugin cannot work — use a built-in DSH provider such as `deepseek-official` or
 `opencode-go` instead.
 
@@ -47,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/kuraneko1/dsh-opencode-zen/main/ins
 Manual install:
 
 ```bash
-dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.21/dsh-opencode-zen-0.2.21.tgz
+dsh plugin --profile web add https://github.com/kuraneko1/dsh-opencode-zen/releases/download/v0.2.22/dsh-opencode-zen-0.2.22.tgz
 "${DSH_HOME:-$HOME/.dsh}/profiles/web/node_modules/.bin/dsh-opencode-zen-setup" --install --profile web --service
 ```
 

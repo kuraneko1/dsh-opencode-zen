@@ -1,6 +1,6 @@
 {
   "name": "dsh-opencode-zen",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "description": "OpenCode Zen free models as a native DSH/RDSH provider plugin with an isolated local relay",
   "type": "module",
   "license": "MIT",
@@ -33,6 +33,7 @@
     "zen-limits.mjs",
     "opencode-bridge.mjs",
     "opencode-plugin.mjs",
+    "client-v2",
     "setup.mjs",
     "cordis.patch.yml",
     "README.md",

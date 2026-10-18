@@ -181,9 +181,18 @@ function abortable(promise, signal) {
 }
 
 // Capabilities are single-use and live only for the duration of one request.
-export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus = () => {} }) {
+export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus = () => {}, generation = 'v1', onBridgeHello = () => {} }) {
   const pending = new Map();
   async function handle(req, res, url) {
+    // Liveness beacon from the client-side plugin. It only flips a health flag: the relay publishes
+    // Zen models only while a bridge plugin has announced itself in this client.
+    if (url.pathname === `${PREFIX}hello`) {
+      if (req.method !== 'POST') { res.writeHead(405).end(); return true; }
+      req.resume();
+      try { onBridgeHello(); } catch { /* Reporting must never break the relay. */ }
+      res.writeHead(204).end();
+      return true;
+    }
     if (!url.pathname.startsWith(PREFIX)) return false;
     const entry = pending.get(url.pathname.slice(PREFIX.length));
     if (!entry || entry.signal.aborted) { res.writeHead(404).end(); return true; }
@@ -243,33 +252,54 @@ export function createBridge({ oc, timeoutMs, log, limits = {}, onUpstreamStatus
     try {
       const syntheticTools = !(payload.tools?.length);
       if (syntheticTools) payload = withSyntheticTools(payload);
-      const session = await call('/session', { method: 'POST', body: JSON.stringify({ title: 'dsh-opencode-zen' }), signal });
-      sessionID = session.id;
+      // 1.x names the model on the message; 2.x names it when the session is created.
+      const session = generation === 'v2'
+        ? await call('/api/session', { method: 'POST', signal,
+          body: JSON.stringify({ title: 'dsh-opencode-zen', model: { providerID, id: modelID } }) })
+        : await call('/session', { method: 'POST', signal, body: JSON.stringify({ title: 'dsh-opencode-zen' }) });
+      sessionID = session?.data?.id ?? session?.id;
+      if (typeof sessionID !== 'string' || sessionID.length === 0) throw new Error('dedicated OpenCode returned no session id');
       token = randomBytes(32).toString('hex');
       let resolve, reject;
       const done = new Promise((yes, no) => { resolve = yes; reject = no; });
       done.catch(() => {});
       pending.set(token, { payload, syntheticTools, res, resolve, reject, signal, claimed: false, started: false });
-      const completion = call(`/session/${sessionID}/message`, {
-        method: 'POST', signal,
-        body: JSON.stringify({
-          model: { providerID, modelID }, agent: 'dsh-bridge', system: `dsh-bridge:${token}`,
-          parts: [{ type: 'text', text: 'Relay the registered request.' }],
-          tools: {},
-        }),
-      });
-      await abortable(Promise.race([
-        done,
-        completion.then(() => { throw new Error('OpenCode bridge plugin did not relay the request; restart the proxy stack'); }),
-      ]), signal);
-      await completion;
+      // 2.x carries the capability in the prompt metadata (the plugin records it there) and answers
+      // the prompt immediately, so completion is signalled by the relayed response, not by the call.
+      if (generation === 'v2') {
+        const requested = call(`/api/session/${encodeURIComponent(sessionID)}/prompt`, {
+          method: 'POST', signal,
+          body: JSON.stringify({ text: 'Relay the registered request.', metadata: { dshBridge: token } }),
+        });
+        requested.catch(error => reject(error));
+        await abortable(done, signal);
+        await requested.catch(() => {});
+      } else {
+        const completion = call(`/session/${sessionID}/message`, {
+          method: 'POST', signal,
+          body: JSON.stringify({
+            model: { providerID, modelID }, agent: 'dsh-bridge', system: `dsh-bridge:${token}`,
+            parts: [{ type: 'text', text: 'Relay the registered request.' }],
+            tools: {},
+          }),
+        });
+        await abortable(Promise.race([
+          done,
+          completion.then(() => { throw new Error('OpenCode bridge plugin did not relay the request; restart the proxy stack'); }),
+        ]), signal);
+        await completion;
+      }
       log('req bridge %s/%s tools=%d total_ms=%d', providerID, modelID, payload.tools?.length || 0, Date.now() - t0);
     } finally {
       if (token) pending.delete(token);
       controller.abort(); res.removeListener('close', cancel);
       if (sessionID) {
-        await call(`/session/${sessionID}/abort`, { method: 'POST', signal: AbortSignal.timeout(5000) }).catch(() => {});
-        await call(`/session/${sessionID}`, { method: 'DELETE', signal: AbortSignal.timeout(5000) }).catch(() => {});
+        if (generation === 'v2') {
+          await call(`/api/session/${encodeURIComponent(sessionID)}/interrupt`, { method: 'POST', signal: AbortSignal.timeout(5000) }).catch(() => {});
+        } else {
+          await call(`/session/${sessionID}/abort`, { method: 'POST', signal: AbortSignal.timeout(5000) }).catch(() => {});
+        }
+        await call(`${generation === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionID)}`, { method: 'DELETE', signal: AbortSignal.timeout(5000) }).catch(() => {});
       }
     }
   }
